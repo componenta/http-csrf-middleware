@@ -5,40 +5,28 @@ declare(strict_types=1);
 namespace Componenta\Http\Middleware\Csrf;
 
 /**
- * Contract for CSRF token generation and validation.
+ * Issues and verifies unguessable tokens for the manager's current context.
  *
- * Implementations MUST use cryptographically secure random number
- * generators for token generation per RFC 4086 §5 (Randomness
- * Requirements for Security).
- *
- * Implementations MUST use constant-time comparison for token
- * validation to prevent timing side-channel attacks.
- *
- * @see RFC 4086 - Randomness Requirements for Security
+ * Implementations may store a cryptographically random token or derive a token
+ * from trusted session state with a secret key. Compare authenticators in
+ * constant time. The application owns the manager's request/session lifetime.
  */
 interface CsrfTokenManagerInterface
 {
     /**
-     * Generates a new CSRF token.
-     *
-     * The returned token MUST contain sufficient entropy to resist
-     * brute-force attacks. A minimum of 128 bits of entropy is
-     * RECOMMENDED per OWASP guidelines.
+     * Provides a valid token for the current context.
+     * A stored-token implementation may rotate it; a keyed implementation may
+     * return a stable token for the current session and credential generation.
      */
     public function generate(): string;
 
-    /**
-     * Validates a submitted CSRF token.
-     *
-     * Implementations MUST use constant-time comparison (hash_equals)
-     * to prevent timing attacks per RFC 4086 §5.
-     */
-    public function validate(string $token): bool;
+    /** Checks the submitted token against the current context and validity rules. */
+    public function validate(#[\SensitiveParameter] string $token): bool;
 
     /**
-     * Retrieves the current active token without generating a new one.
-     *
-     * Returns null if no token has been generated yet.
+     * Returns an available token without creating or rotating token state.
+     * A session-bound implementation may derive it without a previous generate
+     * call. Returns null when no usable token is available.
      */
     public function getActive(): ?string;
 }

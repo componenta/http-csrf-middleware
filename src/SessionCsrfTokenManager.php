@@ -5,32 +5,13 @@ declare(strict_types=1);
 namespace Componenta\Http\Middleware\Csrf;
 
 /**
- * Session-based CSRF token manager using the Synchronizer Token Pattern.
+ * Synchronizer token stored in an active native PHP session.
  *
- * This is the OWASP-recommended defense against CSRF attacks. A random
- * token is generated per session and stored server-side. The token is
- * embedded in forms and submitted with each state-changing request.
- *
- * Token generation uses random_bytes() which sources entropy from the
- * operating system's CSPRNG (e.g., /dev/urandom on Linux, CryptGenRandom
- * on Windows), satisfying RFC 4086 §5 requirements for unpredictability.
- *
- * Per-session tokens are used rather than per-request tokens. Per-request
- * tokens break browser back/forward navigation, tabbed browsing, and
- * concurrent form submissions without providing meaningful additional
- * security for most applications.
- *
- * @see RFC 4086 §5      - Randomness Requirements for Security
- * @see OWASP CSRF Prevention Cheat Sheet - Synchronizer Token Pattern
+ * Reuse getActive() for forms; generate() replaces the stored token.
+ * Session persistence must be available before a token can be issued.
  */
 final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 {
-    /**
-     * Token length in bytes before hex encoding.
-     *
-     * 32 bytes = 256 bits of entropy, well above the 128-bit minimum
-     * recommended by OWASP. The hex-encoded token will be 64 characters.
-     */
     private const int TOKEN_BYTES = 32;
 
     /**
@@ -60,9 +41,6 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
             return false;
         }
 
-        // Constant-time comparison to prevent timing attacks.
-        // hash_equals() is guaranteed to take the same amount of time
-        // regardless of where strings differ.
         return hash_equals($stored, $token);
     }
 
@@ -70,7 +48,9 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
     {
         $this->ensureSessionStarted();
 
-        return $_SESSION[$this->sessionKey] ?? null;
+        $token = $_SESSION[$this->sessionKey] ?? null;
+
+        return is_string($token) && $token !== '' ? $token : null;
     }
 
     /**
@@ -82,8 +62,12 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
      */
     private function ensureSessionStarted(): void
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        if (session_status() === PHP_SESSION_DISABLED || !session_start()) {
+            throw new \RuntimeException('Could not start the PHP session required for CSRF protection.');
         }
     }
 }

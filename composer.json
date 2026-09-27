@@ -6,12 +6,32 @@
     "require": {
         "php": "^8.4",
         "psr/http-message": "^2.0",
-        "psr/http-server-middleware": "^1.0"
+        "psr/http-server-middleware": "^1.0",
+        "psr/http-factory": "^1.0",
+        "psr/http-server-handler": "^1.0"
     },
     "autoload": {
         "psr-4": {
             "Componenta\\Http\\Middleware\\Csrf\\": "src/"
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "require-dev": {
+        "nyholm/psr7": "^1.8",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12.0"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Componenta\\Http\\Middleware\\Csrf\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit --configuration phpunit.xml.dist",
+        "phpstan": "@php vendor/bin/phpstan analyse src --level=max",
+        "check": [
+            "@phpstan",
+            "@test"
+        ]
+    }
 }
