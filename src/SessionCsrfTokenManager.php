@@ -39,7 +39,11 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 
         $stored = $_SESSION[$this->sessionKey] ?? null;
 
-        if (!$this->isValidToken($stored) || !$this->isValidToken($token)) {
+        if (
+            !is_string($stored)
+            || !self::isValidToken($stored)
+            || !self::isValidToken($token)
+        ) {
             return false;
         }
 
@@ -52,13 +56,12 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 
         $token = $_SESSION[$this->sessionKey] ?? null;
 
-        return $this->isValidToken($token) ? $token : null;
+        return is_string($token) && self::isValidToken($token) ? $token : null;
     }
 
-    private function isValidToken(mixed $token): bool
+    private static function isValidToken(string $token): bool
     {
-        return is_string($token)
-            && preg_match('/\A[0-9a-f]{64}\z/D', $token) === 1;
+        return preg_match('/\A[0-9a-f]{64}\z/D', $token) === 1;
     }
 
     private function ensureSessionStarted(): void
