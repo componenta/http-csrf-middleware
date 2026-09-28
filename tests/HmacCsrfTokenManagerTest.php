@@ -35,6 +35,9 @@ final class HmacCsrfTokenManagerTest extends TestCase
         self::assertFalse($this->manager($binding)->validate($token));
     }
 
+    /**
+     * @return iterable<string, array{string}>
+     */
     public static function otherBindings(): iterable
     {
         yield 'another session' => ['session-B:1'];
@@ -57,11 +60,11 @@ final class HmacCsrfTokenManagerTest extends TestCase
         $token = $manager->generate();
         $parts = explode('.', $token);
         $badNonce = $parts;
-        $badNonce[1][0] = $badNonce[1][0] === 'a' ? 'b' : 'a';
+        $badNonce[1] = ($parts[1][0] === 'a' ? 'b' : 'a') . substr($parts[1], 1);
         $badTime = $parts;
         $badTime[2] = '2000000001';
         $badMac = $parts;
-        $badMac[3][0] = $badMac[3][0] === 'a' ? 'b' : 'a';
+        $badMac[3] = ($parts[3][0] === 'a' ? 'b' : 'a') . substr($parts[3], 1);
 
         foreach ([
             '', implode('.', $badNonce), implode('.', $badTime), implode('.', $badMac),
@@ -111,6 +114,9 @@ final class HmacCsrfTokenManagerTest extends TestCase
         new HmacCsrfTokenManager($key, $ttl, $binding);
     }
 
+    /**
+     * @return iterable<string, array{string, string, int}>
+     */
     public static function invalidConfiguration(): iterable
     {
         yield 'short key' => ['short', 'session-A:1', 60];
@@ -144,6 +150,9 @@ final class HmacCsrfTokenManagerTest extends TestCase
         LegacyHmacFactory::withClock(self::KEY, $clock);
     }
 
+    /**
+     * @return iterable<string, array{?\Closure}>
+     */
     public static function legacyClocks(): iterable
     {
         yield 'default clock' => [null];
