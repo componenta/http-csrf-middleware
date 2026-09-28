@@ -53,9 +53,6 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
             );
         }
 
-        if ($this->sameSite === 'None' && !$secure) {
-            throw new InvalidArgumentException('SameSite=None requires a secure cookie.');
-        }
     }
 
     #[\Override]
