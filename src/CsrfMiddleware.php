@@ -267,7 +267,7 @@ final class CsrfMiddleware implements MiddlewareInterface
     }
 
     /**
-     * @param list<string> $origins
+     * @param array<array-key, mixed> $origins
      * @return list<Origin>
      */
     private static function normalizeTrustedOrigins(array $origins): array
@@ -301,7 +301,7 @@ final class CsrfMiddleware implements MiddlewareInterface
     }
 
     /**
-     * @param list<string> $paths
+     * @param array<array-key, mixed> $paths
      * @return list<string>
      */
     private static function normalizeExcludedPaths(array $paths): array
