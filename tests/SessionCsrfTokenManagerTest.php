@@ -48,6 +48,28 @@ final class SessionCsrfTokenManagerTest extends TestCase
         self::assertTrue($manager->validate($manager->generate()));
     }
 
+    public function testMalformedStringSessionValueIsUnavailable(): void
+    {
+        $manager = new SessionCsrfTokenManager();
+        $manager->generate();
+        $_SESSION['_csrf_token'] = 'weak-token';
+
+        self::assertNull($manager->getActive());
+        self::assertFalse($manager->validate('weak-token'));
+    }
+
+    public function testInvalidSessionKeyIsRejected(): void
+    {
+        foreach (['', "bad\r\nkey"] as $key) {
+            try {
+                new SessionCsrfTokenManager($key);
+                self::fail('Expected invalid session key to be rejected.');
+            } catch (\InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
     public function testEmptySessionValueIsUnavailable(): void
     {
         $manager = new SessionCsrfTokenManager();
