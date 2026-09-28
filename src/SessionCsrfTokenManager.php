@@ -4,22 +4,24 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
-/**
- * Synchronizer token stored in an active native PHP session.
- *
- * Reuse getActive() for forms; generate() replaces the stored token.
- * Session persistence must be available before a token can be issued.
- */
+use InvalidArgumentException;
+use RuntimeException;
+
 final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 {
     private const int TOKEN_BYTES = 32;
 
-    /**
-     * @param string $sessionKey Key used to store the token in $_SESSION
-     */
     public function __construct(
         private readonly string $sessionKey = '_csrf_token',
-    ) {}
+    ) {
+        if (
+            $sessionKey === ''
+            || strlen($sessionKey) > 256
+            || preg_match('/[\x00-\x1f\x7f]/', $sessionKey) === 1
+        ) {
+            throw new InvalidArgumentException('CSRF session key is invalid.');
+        }
+    }
 
     public function generate(): string
     {
@@ -31,13 +33,13 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
         return $token;
     }
 
-    public function validate(string $token): bool
+    public function validate(#[\SensitiveParameter] string $token): bool
     {
         $this->ensureSessionStarted();
 
         $stored = $_SESSION[$this->sessionKey] ?? null;
 
-        if (!is_string($stored) || $stored === '' || $token === '') {
+        if (!$this->isValidToken($stored) || !$this->isValidToken($token)) {
             return false;
         }
 
@@ -50,16 +52,15 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 
         $token = $_SESSION[$this->sessionKey] ?? null;
 
-        return is_string($token) && $token !== '' ? $token : null;
+        return $this->isValidToken($token) ? $token : null;
     }
 
-    /**
-     * Ensures a PHP session is active.
-     *
-     * Sessions are required for the Synchronizer Token Pattern since
-     * the token must be stored server-side and associated with the
-     * user's session.
-     */
+    private function isValidToken(mixed $token): bool
+    {
+        return is_string($token)
+            && preg_match('/\A[0-9a-f]{64}\z/D', $token) === 1;
+    }
+
     private function ensureSessionStarted(): void
     {
         if (session_status() === PHP_SESSION_ACTIVE) {
@@ -67,7 +68,7 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
         }
 
         if (session_status() === PHP_SESSION_DISABLED || !session_start()) {
-            throw new \RuntimeException('Could not start the PHP session required for CSRF protection.');
+            throw new RuntimeException('Could not start the PHP session required for CSRF protection.');
         }
     }
 }
