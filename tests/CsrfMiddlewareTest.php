@@ -55,6 +55,9 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertTrue($this->manager('session-A')->validate($handler->token ?? ''));
     }
 
+    /**
+     * @return iterable<string, array{string}>
+     */
     public static function submissionChannels(): iterable
     {
         yield 'header' => ['header'];
