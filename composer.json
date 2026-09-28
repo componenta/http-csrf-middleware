@@ -28,10 +28,14 @@
     },
     "scripts": {
         "test": "@php vendor/bin/phpunit --configuration phpunit.xml.dist",
-        "phpstan": "@php vendor/bin/phpstan analyse src --level=max",
+        "phpstan": "@php vendor/bin/phpstan analyse src tests --level=max --no-progress",
         "check": [
             "@phpstan",
             "@test"
         ]
-    }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "prefer-stable": true
 }
