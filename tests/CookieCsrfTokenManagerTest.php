@@ -37,6 +37,9 @@ final class CookieCsrfTokenManagerTest extends TestCase
         self::assertFalse($manager->validate('attacker-value'));
     }
 
+    /**
+     * @return iterable<string, array{mixed}>
+     */
     public static function malformedCookies(): iterable
     {
         yield 'array' => [['attacker-value']];
