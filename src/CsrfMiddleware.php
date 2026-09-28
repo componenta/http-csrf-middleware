@@ -4,75 +4,29 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use InvalidArgumentException;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
-/**
- * Cross-Site Request Forgery (CSRF) protection middleware.
- *
- * Implements a multi-layer defense strategy:
- *
- * 1. **Origin/Referer verification** (defense-in-depth)
- *    Checks the Origin header (RFC 9110 §10.1.2) or Referer header
- *    (RFC 9110 §10.1.3) against the request's Host to verify that
- *    state-changing requests originate from the same site.
- *
- * 2. **Synchronizer Token validation** (primary defense)
- *    Validates a cryptographic token submitted via request header
- *    or form body field, per the OWASP Synchronizer Token Pattern.
- *
- * Safe methods (GET, HEAD, OPTIONS, TRACE) are exempt from validation
- * per RFC 9110 §9.2.1 - they MUST NOT trigger state changes and
- * therefore cannot be exploited via CSRF.
- *
- * @see RFC 9110 §9.2.1  - Safe Methods
- * @see RFC 9110 §10.1.2 - Origin
- * @see RFC 9110 §10.1.3 - Referer
- * @see RFC 9110 §7.2    - Host and :authority
- * @see OWASP CSRF Prevention Cheat Sheet
- */
 final class CsrfMiddleware implements MiddlewareInterface
 {
-    /**
-     * Methods that are "safe" per RFC 9110 §9.2.1.
-     *
-     * Safe methods are defined as those that do not modify server state.
-     * CSRF protection is only needed for state-changing (unsafe) methods.
-     */
     private const array SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
 
-    /**
-     * Request attribute name for the CSRF token.
-     *
-     * Downstream handlers and templates can retrieve the token from
-     * the request to embed it in forms or meta tags.
-     */
     public const string ATTR_TOKEN = 'csrf_token';
-
-    /**
-     * Request attribute name for the token manager.
-     *
-     * Allows downstream code to generate fresh tokens if needed.
-     */
     public const string ATTR_TOKEN_MANAGER = 'csrf_token_manager';
 
+    /** @var list<Origin> */
+    private readonly array $trustedOrigins;
+
+    /** @var list<string> */
+    private readonly array $excludedPaths;
+
     /**
-     * @param CsrfTokenManagerInterface $tokenManager  Token generation/validation
-     * @param ResponseFactoryInterface  $responseFactory PSR-17 response factory
-     * @param string $headerName     HTTP header to check for the CSRF token.
-     *                               X-CSRF-Token is the de facto standard.
-     * @param string $fieldName      Form body field name for the CSRF token.
-     * @param bool   $checkOrigin    Whether to verify Origin/Referer headers
-     *                               as a defense-in-depth layer.
-     * @param list<string> $trustedOrigins  Additional trusted origins beyond
-     *                                      the request Host. Each entry must
-     *                                      include the scheme (e.g., "https://cdn.example.com").
-     * @param list<string> $excludedPaths   Path prefixes exempt from CSRF validation.
-     *                                      Useful for webhook endpoints or API routes
-     *                                      that use other authentication mechanisms.
+     * @param list<string> $trustedOrigins
+     * @param list<string> $excludedPaths
      */
     public function __construct(
         private readonly CsrfTokenManagerInterface $tokenManager,
@@ -80,58 +34,66 @@ final class CsrfMiddleware implements MiddlewareInterface
         private readonly string $headerName = 'X-CSRF-Token',
         private readonly string $fieldName = '_csrf_token',
         private readonly bool $checkOrigin = true,
-        private readonly array $trustedOrigins = [],
-        private readonly array $excludedPaths = [],
-    ) {}
+        array $trustedOrigins = [],
+        array $excludedPaths = [],
+        private readonly bool $checkFetchMetadata = true,
+        private readonly bool $allowMissingOrigin = false,
+        private readonly bool $debugFailureHeader = false,
+    ) {
+        if (preg_match("@^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$@D", $headerName) !== 1) {
+            throw new InvalidArgumentException('CSRF token header name must be a valid HTTP field name.');
+        }
+
+        if (
+            $fieldName === ''
+            || strlen($fieldName) > 256
+            || preg_match('/[\x00-\x1f\x7f]/', $fieldName) === 1
+        ) {
+            throw new InvalidArgumentException('CSRF form field name is invalid.');
+        }
+
+        $this->trustedOrigins = self::normalizeTrustedOrigins($trustedOrigins);
+        $this->excludedPaths = self::normalizeExcludedPaths($excludedPaths);
+    }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        // Safe methods are exempt from CSRF validation per RFC 9110 §9.2.1
         if ($this->isSafeMethod($request)) {
             return $handler->handle($this->injectToken($request));
         }
 
-        // Check path exclusions
         if ($this->isExcludedPath($request)) {
-            return $handler->handle($this->injectToken($request));
+            return $handler->handle($request);
         }
 
         try {
-            // Layer 1: Origin/Referer verification (defense-in-depth)
+            if ($this->checkFetchMetadata) {
+                $this->verifyFetchMetadata($request);
+            }
+
             if ($this->checkOrigin) {
                 $this->verifyOrigin($request);
             }
 
-            // Layer 2: Synchronizer Token validation (primary defense)
             $this->verifyToken($request);
-        } catch (InvalidCsrfTokenException $e) {
-            return $this->forbidden($e->reason);
+        } catch (InvalidCsrfTokenException $exception) {
+            return $this->forbidden($exception->reason);
         }
 
         return $handler->handle($this->injectToken($request));
     }
 
-    /**
-     * Determines if the request uses a safe method.
-     *
-     * Per RFC 9110 §9.2.1, safe methods are those whose defined semantics
-     * are essentially read-only. The convention is that safe methods
-     * should not cause side effects.
-     */
     private function isSafeMethod(ServerRequestInterface $request): bool
     {
         return in_array(strtoupper($request->getMethod()), self::SAFE_METHODS, true);
     }
 
-    /**
-     * Checks if the request path matches any excluded prefix.
-     */
     private function isExcludedPath(ServerRequestInterface $request): bool
     {
         $path = $request->getUri()->getPath();
 
         foreach ($this->excludedPaths as $prefix) {
-            if (str_starts_with($path, $prefix)) {
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
                 return true;
             }
         }
@@ -140,79 +102,77 @@ final class CsrfMiddleware implements MiddlewareInterface
     }
 
     /**
-     * Verifies the Origin or Referer header matches the target origin.
-     *
-     * Per RFC 9110 §10.1.2, the Origin header indicates the origin
-     * that caused the user agent to send the request. For cross-origin
-     * requests, this MUST differ from the target origin, allowing
-     * detection of CSRF attacks.
-     *
-     * Per RFC 9110 §10.1.3, the Referer header contains a URI reference
-     * for the resource from which the request was obtained. It serves
-     * as a fallback when Origin is absent (some browsers omit Origin
-     * on same-origin POST requests).
-     *
-     * The Fetch Standard §3.2.5 specifies that Origin is set to "null"
-     * (the string) for privacy-sensitive contexts. We reject "null"
-     * Origin values as they provide no meaningful verification.
-     *
-     * @throws InvalidCsrfTokenException If origin verification fails
+     * Fetch Metadata is a browser-controlled defense-in-depth signal.
+     * Explicit trusted origins remain usable for intentional cross-site clients.
      */
+    private function verifyFetchMetadata(ServerRequestInterface $request): void
+    {
+        $site = strtolower($request->getHeaderLine('Sec-Fetch-Site'));
+
+        if ($site === '') {
+            return;
+        }
+
+        if (!in_array($site, ['same-origin', 'same-site', 'cross-site', 'none'], true)) {
+            throw new InvalidCsrfTokenException(
+                'fetch_metadata_malformed',
+                'Sec-Fetch-Site contains an unsupported value',
+            );
+        }
+
+        if ($site !== 'cross-site') {
+            return;
+        }
+
+        $source = Origin::fromSerialized($request->getHeaderLine('Origin'));
+
+        if ($source !== null && !$source->opaque && $this->isTrustedOrigin($source)) {
+            return;
+        }
+
+        throw new InvalidCsrfTokenException(
+            'fetch_metadata_cross_site',
+            'Cross-site unsafe request rejected by Fetch Metadata policy',
+        );
+    }
+
     private function verifyOrigin(ServerRequestInterface $request): void
     {
-        $origin = $request->getHeaderLine('Origin');
+        $originHeader = $request->getHeaderLine('Origin');
         $referer = $request->getHeaderLine('Referer');
 
-        // If neither header is present, skip origin checking.
-        // Some legitimate requests (e.g., from non-browser clients,
-        // or browsers with strict referrer policies) may lack both.
-        // Token validation (layer 2) remains the primary defense.
-        if ($origin === '' && $referer === '') {
-            return;
+        if ($originHeader === '' && $referer === '') {
+            if ($this->allowMissingOrigin) {
+                return;
+            }
+
+            throw new InvalidCsrfTokenException(
+                'origin_missing',
+                'Origin and Referer headers are both absent',
+            );
         }
 
-        $targetOrigin = $this->getTargetOrigin($request);
+        $target = Origin::fromRequest($request);
 
-        if ($targetOrigin === null) {
-            // Cannot determine target origin - skip origin check.
-            // This can happen if the Host header is missing or malformed.
-            return;
+        if ($target === null || $target->opaque) {
+            throw new InvalidCsrfTokenException(
+                'target_origin_invalid',
+                'Target origin cannot be determined safely',
+            );
         }
 
-        // Prefer Origin header (RFC 9110 §10.1.2)
-        if ($origin !== '') {
-            // Reject the "null" origin string - it's sent for opaque origins
-            // (data: URIs, sandboxed iframes) and provides no security value.
-            if (strtolower($origin) === 'null') {
-                throw new InvalidCsrfTokenException('origin_null', 'Origin header is "null"');
+        if ($originHeader !== '') {
+            $source = Origin::fromSerialized($originHeader);
+
+            if ($source === null) {
+                throw new InvalidCsrfTokenException('origin_malformed', 'Origin header is malformed');
             }
 
-            // Normalize the Origin header by parsing it to extract
-            // scheme://host[:port] and strip standard ports per RFC 6454 §5.
-            // This ensures that "https://example.com:443" matches
-            // "https://example.com" (port 443 is standard for HTTPS).
-            //
-            // Reject origins containing "@" - per RFC 6454 §5, the origin
-            // serialization is "scheme://host[:port]" with no userinfo.
-            // Allowing "@" could let parse_url extract a different host
-            // (e.g., "https://evil.com\@example.com" -> host=example.com).
-            if (str_contains($origin, '@')) {
-                throw new InvalidCsrfTokenException(
-                    'origin_malformed',
-                    'Origin header contains userinfo (not permitted per RFC 6454)',
-                );
+            if ($source->opaque) {
+                throw new InvalidCsrfTokenException('origin_null', 'Opaque Origin is not trusted');
             }
 
-            $normalizedOrigin = $this->extractOriginFromUri($origin);
-
-            if ($normalizedOrigin === null) {
-                throw new InvalidCsrfTokenException(
-                    'origin_malformed',
-                    'Origin header is malformed',
-                );
-            }
-
-            if ($this->originMatches($normalizedOrigin, $targetOrigin)) {
+            if ($source->equals($target) || $this->isTrustedOrigin($source)) {
                 return;
             }
 
@@ -222,18 +182,16 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        // Fallback: check Referer header (RFC 9110 §10.1.3)
-        $refererOrigin = $this->extractOriginFromUri($referer);
+        $source = Origin::fromUri($referer);
 
-        if ($refererOrigin === null) {
-            // Malformed Referer - cannot verify, reject to be safe
+        if ($source === null || $source->opaque) {
             throw new InvalidCsrfTokenException(
                 'referer_malformed',
                 'Referer header is malformed',
             );
         }
 
-        if (!$this->originMatches($refererOrigin, $targetOrigin)) {
+        if (!$source->equals($target) && !$this->isTrustedOrigin($source)) {
             throw new InvalidCsrfTokenException(
                 'referer_mismatch',
                 'Referer origin does not match target origin',
@@ -241,17 +199,6 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
     }
 
-    /**
-     * Validates the CSRF token submitted with the request.
-     *
-     * The token is looked up in the following order:
-     * 1. Request header (X-CSRF-Token by default) - preferred for
-     *    JavaScript/XHR/fetch requests
-     * 2. Parsed body field (_csrf_token by default) - for HTML form
-     *    submissions
-     *
-     * @throws InvalidCsrfTokenException If token is missing or invalid
-     */
     private function verifyToken(ServerRequestInterface $request): void
     {
         $token = $this->extractToken($request);
@@ -263,7 +210,7 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        if (!$this->tokenManager->validate($token)) {
+        if ($token === '' || !$this->tokenManager->validate($token)) {
             throw new InvalidCsrfTokenException(
                 'token_invalid',
                 'CSRF token is invalid or expired',
@@ -271,120 +218,27 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
     }
 
-    /**
-     * Extracts the CSRF token from request header or body.
-     */
     private function extractToken(ServerRequestInterface $request): ?string
     {
-        // 1. Check request header (preferred for XHR/fetch)
-        $headerValue = $request->getHeaderLine($this->headerName);
+        if ($request->hasHeader($this->headerName)) {
+            $values = array_values($request->getHeader($this->headerName));
 
-        if ($headerValue !== '') {
-            return $headerValue;
+            return count($values) === 1 ? $values[0] : '';
         }
 
-        // 2. Check parsed body field (HTML form submissions)
         $body = $request->getParsedBody();
 
-        if (is_array($body) && isset($body[$this->fieldName]) && is_string($body[$this->fieldName])) {
-            return $body[$this->fieldName];
-        }
-
-        return null;
-    }
-
-    /**
-     * Determines the target origin from the request.
-     *
-     * Per RFC 9110 §7.2, the Host header (or :authority pseudo-header
-     * in HTTP/2+) identifies the target URI's authority. Combined with
-     * the request scheme, this forms the target origin.
-     *
-     * @return string|null Origin in the form "scheme://host[:port]", or null
-     *                     if the target origin cannot be determined
-     */
-    private function getTargetOrigin(ServerRequestInterface $request): ?string
-    {
-        $uri = $request->getUri();
-        $scheme = $uri->getScheme();
-        $host = $uri->getHost();
-
-        if ($scheme === '' || $host === '') {
+        if (!is_array($body) || !array_key_exists($this->fieldName, $body)) {
             return null;
         }
 
-        $origin = "{$scheme}://{$host}";
-
-        $port = $uri->getPort();
-
-        // Include port only if it's non-standard per RFC 9110 §4.2.3
-        if ($port !== null && !$this->isStandardPort($scheme, $port)) {
-            $origin .= ":{$port}";
-        }
-
-        return strtolower($origin);
+        return is_string($body[$this->fieldName]) ? $body[$this->fieldName] : '';
     }
 
-    /**
-     * Extracts the origin (scheme + host + port) from a URI string.
-     *
-     * Per RFC 6454 §5, the origin of a URI is the triple
-     * (scheme, host, port). For standard ports, the port is omitted.
-     *
-     * @see RFC 6454 - The Web Origin Concept
-     */
-    private function extractOriginFromUri(string $uri): ?string
+    private function isTrustedOrigin(Origin $origin): bool
     {
-        $parsed = parse_url($uri);
-
-        if ($parsed === false || !isset($parsed['scheme'], $parsed['host'])) {
-            return null;
-        }
-
-        // Reject URIs with userinfo in the authority component.
-        // Per RFC 6454 §5, origin serialization is "scheme://host[:port]"
-        // with no userinfo. parse_url may extract a different host when
-        // userinfo is present (e.g., "https://evil.com@example.com" ->
-        // user=evil.com, host=example.com), enabling origin confusion attacks.
-        // Note: '@' in query/path/fragment does NOT produce a 'user' key.
-        if (isset($parsed['user'])) {
-            return null;
-        }
-
-        $origin = strtolower($parsed['scheme']) . '://' . strtolower($parsed['host']);
-
-        if (isset($parsed['port']) && !$this->isStandardPort($parsed['scheme'], $parsed['port'])) {
-            $origin .= ':' . $parsed['port'];
-        }
-
-        return $origin;
-    }
-
-    /**
-     * Checks whether an origin matches the target or a trusted origin.
-     *
-     * All comparisons are performed on normalized origins (lowercase,
-     * standard ports stripped) to ensure RFC 6454 §5 compliance.
-     */
-    private function originMatches(string $origin, string $targetOrigin): bool
-    {
-        $normalizedOrigin = strtolower($origin);
-
-        if ($normalizedOrigin === $targetOrigin) {
-            return true;
-        }
-
         foreach ($this->trustedOrigins as $trusted) {
-            // Normalize trusted origins the same way: strip standard ports
-            $normalizedTrusted = $this->extractOriginFromUri($trusted);
-
-            if ($normalizedTrusted !== null && $normalizedOrigin === $normalizedTrusted) {
-                return true;
-            }
-
-            // Fallback: simple lowercase comparison for origins that
-            // can't be parsed (e.g., bare hostnames configured by user)
-            if ($normalizedOrigin === strtolower($trusted)) {
+            if ($trusted->equals($origin)) {
                 return true;
             }
         }
@@ -392,28 +246,6 @@ final class CsrfMiddleware implements MiddlewareInterface
         return false;
     }
 
-    /**
-     * Determines if a port is the standard port for the given scheme.
-     *
-     * Per RFC 9110 §4.2.3, the default port for "http" is 80
-     * and for "https" is 443.
-     */
-    private function isStandardPort(string $scheme, int $port): bool
-    {
-        return match (strtolower($scheme)) {
-            'http' => $port === 80,
-            'https' => $port === 443,
-            default => false,
-        };
-    }
-
-    /**
-     * Injects the CSRF token and token manager into request attributes.
-     *
-     * This allows downstream handlers and view layers to:
-     * - Retrieve the token for embedding in forms: $request->getAttribute('csrf_token')
-     * - Access the manager for advanced use: $request->getAttribute('csrf_token_manager')
-     */
     private function injectToken(ServerRequestInterface $request): ServerRequestInterface
     {
         $token = $this->tokenManager->getActive() ?? $this->tokenManager->generate();
@@ -423,23 +255,80 @@ final class CsrfMiddleware implements MiddlewareInterface
             ->withAttribute(self::ATTR_TOKEN_MANAGER, $this->tokenManager);
     }
 
-    /**
-     * Creates a 403 Forbidden response.
-     *
-     * Per RFC 9110 §15.5.4, the 403 status code indicates that the
-     * server understood the request but refuses to fulfill it.
-     * The response body is intentionally generic to avoid leaking
-     * information about why validation failed.
-     *
-     * @see RFC 9110 §15.5.4 - 403 Forbidden
-     */
     private function forbidden(string $reason): ResponseInterface
     {
-        $response = $this->responseFactory->createResponse(403);
-        $body = $response->getBody();
-        $body->write('403 Forbidden');
+        $response = $this->responseFactory->createResponse(403)
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('Pragma', 'no-cache');
 
-        // Log-friendly reason header (not exposed to browsers in typical setups)
-        return $response->withHeader('X-CSRF-Failure', $reason);
+        return $this->debugFailureHeader
+            ? $response->withHeader('X-CSRF-Failure', $reason)
+            : $response;
+    }
+
+    /**
+     * @param list<string> $origins
+     * @return list<Origin>
+     */
+    private static function normalizeTrustedOrigins(array $origins): array
+    {
+        $normalized = [];
+        $seen = [];
+
+        foreach ($origins as $value) {
+            if (!is_string($value)) {
+                throw new InvalidArgumentException('Trusted CSRF origins must be strings.');
+            }
+
+            $origin = Origin::fromSerialized($value);
+
+            if ($origin === null || $origin->opaque) {
+                throw new InvalidArgumentException(sprintf(
+                    'Trusted CSRF origin "%s" must be an explicit HTTP(S) origin.',
+                    $value,
+                ));
+            }
+
+            $key = (string) $origin;
+
+            if (!isset($seen[$key])) {
+                $normalized[] = $origin;
+                $seen[$key] = true;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param list<string> $paths
+     * @return list<string>
+     */
+    private static function normalizeExcludedPaths(array $paths): array
+    {
+        $normalized = [];
+
+        foreach ($paths as $path) {
+            if (
+                !is_string($path)
+                || $path === ''
+                || $path === '/'
+                || $path[0] !== '/'
+                || str_contains($path, '?')
+                || str_contains($path, '#')
+            ) {
+                throw new InvalidArgumentException(
+                    'Excluded CSRF paths must be non-root absolute path prefixes without query or fragment.',
+                );
+            }
+
+            $path = rtrim($path, '/');
+
+            if (!in_array($path, $normalized, true)) {
+                $normalized[] = $path;
+            }
+        }
+
+        return $normalized;
     }
 }
