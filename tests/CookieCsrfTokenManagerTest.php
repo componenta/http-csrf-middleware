@@ -14,7 +14,7 @@ final class CookieCsrfTokenManagerTest extends TestCase
 {
     public function testGeneratedTokenReplacesTheIncomingCookieForThisRequest(): void
     {
-        $_COOKIE['csrf_token'] = str_repeat('a', 64);
+        $_COOKIE['__Host-csrf_token'] = str_repeat('a', 64);
         $manager = new CookieCsrfTokenManager();
 
         $token = $manager->generate();
@@ -30,7 +30,7 @@ final class CookieCsrfTokenManagerTest extends TestCase
     #[DataProvider('malformedCookies')]
     public function testMalformedCookiesAreUnavailable(mixed $value): void
     {
-        $_COOKIE['csrf_token'] = $value;
+        $_COOKIE['__Host-csrf_token'] = $value;
         $manager = new CookieCsrfTokenManager();
 
         self::assertNull($manager->getActive());
@@ -47,11 +47,28 @@ final class CookieCsrfTokenManagerTest extends TestCase
 
     public function testExistingGeneratedCookieCanBeValidated(): void
     {
-        $_COOKIE['csrf_token'] = str_repeat('a', 64);
+        $_COOKIE['__Host-csrf_token'] = str_repeat('a', 64);
         $manager = new CookieCsrfTokenManager();
 
         self::assertTrue($manager->validate(str_repeat('a', 64)));
         self::assertFalse($manager->validate(str_repeat('b', 64)));
+    }
+
+    public function testLegacyCookieRequiresHostPrefixAndHostScope(): void
+    {
+        foreach ([
+            static fn() => new CookieCsrfTokenManager(cookieName: 'csrf_token'),
+            static fn() => new CookieCsrfTokenManager(secure: false),
+            static fn() => new CookieCsrfTokenManager(path: '/app'),
+            static fn() => new CookieCsrfTokenManager(domain: 'example.test'),
+        ] as $factory) {
+            try {
+                $factory();
+                self::fail('Expected unsafe legacy cookie configuration to be rejected.');
+            } catch (\InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
     }
 
     public function testInvalidSameSiteFailsAtConfiguration(): void
