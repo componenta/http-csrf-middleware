@@ -409,9 +409,10 @@ final class CsrfMiddleware implements MiddlewareInterface
                 || $path[0] !== '/'
                 || str_contains($path, '?')
                 || str_contains($path, '#')
+                || !self::isUnambiguousExclusionPath($path)
             ) {
                 throw new InvalidArgumentException(
-                    'Excluded CSRF paths must be non-root absolute path prefixes without query or fragment.',
+                    'Excluded CSRF paths must be unambiguous non-root absolute path prefixes without query or fragment.',
                 );
             }
 
