@@ -291,6 +291,31 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(0, $handler->calls);
     }
 
+    #[DataProvider('safeMethods')]
+    public function testSafeResponseDoesNotVaryOnUnsafeSecurityHeaders(string $method): void
+    {
+        $middleware = new CsrfMiddleware($this->manager('session-A'), new Psr17Factory());
+        $handler = new CsrfProtectedHandler(new Response(204, ['Vary' => 'Accept-Encoding']));
+
+        $response = $middleware->process(
+            new ServerRequest($method, 'https://shop.example/resource'),
+            $handler,
+        );
+
+        self::assertSame('Accept-Encoding', $response->getHeaderLine('Vary'));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function safeMethods(): iterable
+    {
+        yield 'GET' => ['GET'];
+        yield 'HEAD' => ['HEAD'];
+        yield 'OPTIONS' => ['OPTIONS'];
+        yield 'TRACE' => ['TRACE'];
+    }
+
     public function testSuccessfulUnsafeResponseVariesOnSecurityContextHeaders(): void
     {
         $middleware = new CsrfMiddleware($this->manager('session-A'), new Psr17Factory());
