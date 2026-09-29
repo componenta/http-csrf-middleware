@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.0.1
+
+Security-compatibility patch release.
+
+### Fixed
+- Unknown future `Sec-Fetch-Site` values are ignored as recommended by OWASP for forward compatibility instead of causing a hard 403.
+- Unknown Fetch Metadata never bypasses the existing Origin/Referer and CSRF-token validation layers.
+- Successful unsafe responses now emit cache-correct `Vary` fields for the security-context request headers that influence the allow/deny decision.
+- Safe-method responses keep their original `Vary` contract.
+
+### Verification
+- PHP 8.4 and 8.5, lowest and highest dependency sets.
+- Composer strict validation and security audit.
+- PHPStan level max over source and tests.
+- Strict PHPUnit configuration.
+- Infection mutation coverage 100%; covered-code MSI remains above the required 80%.
+
 ## v3.0.0
 
 Breaking security-focused release.
