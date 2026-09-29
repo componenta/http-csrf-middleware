@@ -1,9 +1,8 @@
 # Componenta HTTP CSRF Middleware
 
-Менеджеры CSRF-токенов и промежуточный обработчик PSR-15 для PHP 8.4+.
-Пакет проверяет токены изменяющих запросов и, при включённой настройке,
-Origin/Referer. Аутентификацию, жизненный цикл сессии, разбор тела, CORS
-и маршрутизацию настраивает приложение.
+PSR-15 защита от CSRF и token managers для PHP 8.4+.
+
+Пакет сочетает session-bound CSRF token с проверкой браузерного контекста запроса. Для stateful-приложений основной защитой остаётся synchronizer token или HMAC-токен, привязанный к trusted session state. SameSite и Fetch Metadata используются как defense in depth.
 
 ## Установка
 
@@ -11,110 +10,172 @@ Origin/Referer. Аутентификацию, жизненный цикл сес
 composer require componenta/http-csrf-middleware
 ```
 
-Провайдера конфигурации нет. Передайте менеджер токенов и фабрику ответов PSR-17 явно.
+## Рекомендуемые managers
 
-## Менеджеры
-
-| Класс | Контекст и хранение |
+| Manager | Назначение |
 |---|---|
-| `SessionCsrfTokenManager` | Случайный токен в PHP `$_SESSION`. Запускает сессию при необходимости; ошибка открытия хранилища прерывает операцию. |
-| `HmacCsrfTokenManager` | Подписанный токен с обязательной привязкой к текущей сессии. Хранить токен на сервере не требуется. |
-| `CookieCsrfTokenManager` | Старый неподписанный вариант двойной передачи токена: cookie и заголовок/форма. Использует `setcookie()`. |
+| `HmacCsrfTokenManager` | Stateless HMAC-токен, привязанный к доверенному session context. |
+| `SessionCsrfTokenManager` | Случайный 256-bit synchronizer token в native PHP session. |
+| `CookieCsrfTokenManager` | Только legacy double-submit; для новых интеграций deprecated. |
 
-Для Auth 3 используйте `AuthSessionCsrfTokenManager` и `AuthSessionCsrfMiddleware`
-из `componenta/auth-session-http`: они учитывают UUID и поколение учётных данных сессии.
+Для Auth 3 используйте `AuthSessionCsrfTokenManager` / `AuthSessionCsrfMiddleware` из `componenta/auth-session-http`.
 
-Cookie-менеджер **не защищает от подмены cookie**, если атакующий может установить
-cookie на домене приложения. Для новой интеграции выбирайте PHP-сессию или HMAC
-с привязкой. Cookie-менеджер использует нативные заголовки PHP, а не транспорт PSR-7.
-
-## HMAC с привязкой к сессии
+## HMAC и session binding
 
 ```php
-use Componenta\Http\Middleware\Csrf\CsrfMiddleware;
-use Componenta\Http\Middleware\Csrf\HmacCsrfTokenManager;
-
-// Значения берутся из проверенного серверного состояния сессии.
 $tokens = new HmacCsrfTokenManager(
     secretKey: $csrfKey,
-    sessionBinding: $authenticatedSessionId . ':' . $credentialGeneration,
     ttl: 3600,
+    sessionBinding: $sessionId . ':' . $credentialGeneration,
 );
-$middleware = new CsrfMiddleware($tokens, $responseFactory);
 ```
 
-Ключ должен содержать не менее 32 криптографически случайных байт. Привязка
-идентифицирует конкретную сессию и меняется при новом входе, а также при тех
-ротациях учётных данных, которые должны аннулировать CSRF-токены. Не берите её
-из присланного токена, заголовка или формы. Постоянный ID пользователя, email
-и ID магазина для этого не подходят.
+Требования:
 
-До входа можно использовать проверенную предварительную транзакцию, привязанную
-к браузеру. Общая константа для всех посетителей недопустима.
+- случайный server secret минимум 32 байта;
+- binding только из trusted server-side session state;
+- binding меняется при новом login/session rotation и нужных credential rotations;
+- binding нельзя брать из request input;
+- manager создаётся в контексте текущей session, а не как singleton между пользователями.
 
-Создавайте менеджер для текущего запроса и сессии. Не храните его общим объектом
-между пользователями и не используйте после смены сессии. Сначала приложение
-проверяет действительность сессии: сам HMAC-менеджер не знает о её отзыве.
+Формат токена: `v2.nonce.timestamp.mac`. Session binding не раскрывается, но входит в MAC. Используется constant-time comparison, TTL и ограничение future skew 30 секунд.
 
-Формат токена: `v2.nonce.timestamp.mac`. Подпись учитывает однозначно закодированную
-привязку и отдельный префикс протокола. Привязка не попадает в публичный токен.
-Другая сессия или другое поколение не могут проверить эту подпись.
-Повреждённые, просроченные и старые токены без привязки отклоняются.
+## Модель middleware
 
-`ttl` — положительное число секунд. На точной границе TTL токен ещё действует;
-допустимое опережение часов — не более 30 секунд. Необязательный `clock` должен
-возвращать положительную целочисленную метку времени Unix.
+Для unsafe methods должны пройти все включённые слои:
 
-Привязка соответствует
-[рекомендациям OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#signed-double-submit-cookie-recommended).
+1. Fetch Metadata;
+2. Origin/Referer;
+3. CSRF token.
 
-## Работа промежуточного обработчика
+Safe методы RFC `GET`, `HEAD`, `OPTIONS`, `TRACE` не требуют submitted token и получают активный/новый token через request attribute.
 
-Безопасные методы `GET`, `HEAD`, `OPTIONS` и `TRACE` не требуют присланного токена.
-Для изменяющих запросов сначала используется `X-CSRF-Token`, затем поле разобранного
-тела `_csrf_token`. Неверный непустой заголовок не заменяется правильным токеном из формы.
+### Fetch Metadata
 
-Токен доступен обработчику страницы в атрибуте запроса `csrf_token`, менеджер —
-в `csrf_token_manager`. Передавайте токен явно в заголовке или форме; не помещайте
-его в URL и журналы.
+`checkFetchMetadata=true` по умолчанию.
 
-`checkOrigin` включён по умолчанию. Если Origin и Referer отсутствуют, проверка
-токена всё равно выполняется. `trustedOrigins` добавляет разрешённые источники.
-`excludedPaths` исключает префиксы путей: используйте его только для маршрутов
-с отдельной защитой, например проверкой подписи уведомления провайдера.
+Unsafe запрос с:
 
-Отсутствующий/неверный токен или отклонённый источник дают HTTP 403 без вызова
-защищённого обработчика. Ошибки серверной конфигурации, часов и хранения вызывают
-исключения.
+```http
+Sec-Fetch-Site: cross-site
+```
 
-## Контракт и нативное хранение
+блокируется до проверки токена, кроме exact origins из `trustedOrigins`.
 
-`generate()` предоставляет токен. Менеджер хранимого токена может заменить прежний;
-реализация с ключом может вернуть стабильное значение для текущей сессии.
-`getActive()` возвращает доступный токен без создания или ротации состояния либо
-`null`. `validate()` проверяет присланное значение в текущем контексте.
+Поддерживаются `same-origin`, `same-site`, `cross-site`, `none`. Неизвестное значение блокируется.
 
-PHP-сессия использует ключ `_csrf_token`. При выводе новых форм переиспользуйте
-`getActive()`: `generate()` заменяет старый токен. Нестроковые и пустые значения
-считаются отсутствующими. Ошибка запуска сессии вызывает `RuntimeException`.
+Fetch Metadata — дополнительная браузерная защита и не заменяет CSRF token.
 
-Cookie-менеджер по умолчанию использует `csrf_token`, TTL 7200, путь `/`, пустой
-домен, `Secure`, `HttpOnly` и `SameSite=Strict`. Значения Strict/Lax/None принимаются
-без учёта регистра; None требует Secure. TTL должен быть положительным.
-Повреждённый cookie считается отсутствующим. После генерации кэш текущего запроса
-содержит новый токен. `clear()` удаляет cookie и очищает кэш. Неудачная запись
-cookie вызывает `RuntimeException`; заголовки должны оставаться доступными для записи.
+### Origin / Referer
 
-## Переход на 2.0
+`checkOrigin=true` по умолчанию.
 
-Конструктор теперь имеет вид `(secretKey, ttl, sessionBinding, clock = null)`.
-TTL и привязка обязательны. TTL остаётся на прежней позиции, чтобы PHP без
-`strict_types` не превращал старое числовое значение в общую привязку.
-Старые вызовы с двумя аргументами вызывают `ArgumentCountError`, а с третьим
-аргументом Closure или `null` — `TypeError`.
-Замените `new HmacCsrfTokenManager($key, $ttl)` на вызов с именованными аргументами
-и доверенной привязкой. Старые токены намеренно отклоняются: клиент должен заново
-получить форму или ответ с токеном. Режима совместимости со старыми токенами без привязки нет.
+Сначала проверяется `Origin`, при его отсутствии — `Referer`. Сравнение точное: scheme + host + effective port.
 
-Сигнатуры методов `CsrfTokenManagerInterface` и существующий менеджер Auth 3
-совместимы с прежними потребителями.
+Fail-closed:
+
+- malformed Origin/Referer;
+- `Origin: null`;
+- невозможно безопасно определить target HTTP(S) origin;
+- отсутствуют и `Origin`, и `Referer`.
+
+Для legacy/non-browser клиента совместимость включается только явно:
+
+```php
+allowMissingOrigin: true
+```
+
+CSRF token при этом всё равно обязателен.
+
+### Reverse proxy
+
+CSRF middleware не должно само доверять `X-Forwarded-*`.
+
+Правильный порядок:
+
+```text
+TrustedProxyMiddleware
+    -> CsrfMiddleware
+    -> application
+```
+
+`componenta/http-trusted-proxy-middleware` сначала нормализует scheme/host/port только от trusted proxies и удаляет raw forwarding headers.
+
+### Trusted origins
+
+`trustedOrigins` — только exact allowlist:
+
+```php
+trustedOrigins: [
+    'https://app.example.com',
+    'https://admin.example.com:8443',
+]
+```
+
+Path/query/fragment/userinfo, `null` и malformed values запрещены. Wildcard/suffix matching отсутствует.
+
+## Передача токена
+
+Предпочтительно:
+
+```http
+X-CSRF-Token: <token>
+```
+
+Для HTML form допускается `_csrf_token`.
+
+Если token header присутствует, он имеет приоритет. Пустой, неверный или переданный несколькими header values токен не может fallback на валидный body token.
+
+Не помещайте CSRF tokens в URL или logs.
+
+## Excluded paths
+
+`excludedPaths` предназначен только для маршрутов с отдельным trust mechanism, например signed webhooks.
+
+```php
+excludedPaths: ['/webhook']
+```
+
+совпадает с `/webhook` и `/webhook/provider`, но не с `/webhook-admin`.
+
+Пустой path, `/`, query/fragment запрещены. На excluded request CSRF полностью не выполняется и token attributes не добавляются.
+
+## Ошибки
+
+Rejected request получает 403:
+
+```http
+Cache-Control: no-store
+Pragma: no-cache
+```
+
+Причина ошибки наружу по умолчанию не выдаётся. Для локальной диагностики можно явно включить:
+
+```php
+debugFailureHeader: true
+```
+
+## Session manager
+
+`SessionCsrfTokenManager` хранит случайный 32-byte token в виде 64 lowercase hex символов. Любое другое значение в session считается повреждённым/недоступным.
+
+За rotation session ID и защиту от session fixation отвечает authentication/session layer.
+
+## Legacy cookie manager
+
+`CookieCsrfTokenManager` deprecated для нового кода. Это unsigned double-submit pattern.
+
+Для снижения cookie-injection риска теперь обязательны `__Host-` semantics:
+
+- имя начинается с `__Host-`;
+- `Secure=true`;
+- `Path=/`;
+- `Domain` отсутствует.
+
+Default: `__Host-csrf_token`.
+
+## Проверка качества
+
+GitHub Actions проверяет PHP 8.4/8.5, lowest/highest dependencies, `composer validate --strict`, `composer audit`, PHPStan level max по `src/tests` и PHPUnit regression tests.
+
+Ориентиры: OWASP CSRF Prevention Cheat Sheet, RFC 9110, RFC 6454 и Fetch Metadata guidance.
