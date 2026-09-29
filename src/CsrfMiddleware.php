@@ -59,7 +59,9 @@ final class CsrfMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         if ($this->isSafeMethod($request)) {
-            return $handler->handle($this->injectToken($request));
+            return $this->addSecurityVary(
+            $handler->handle($this->injectToken($request)),
+        );
         }
 
         if ($this->isExcludedPath($request)) {
@@ -114,10 +116,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
 
         if (!in_array($site, ['same-origin', 'same-site', 'cross-site', 'none'], true)) {
-            throw new InvalidCsrfTokenException(
-                'fetch_metadata_malformed',
-                'Sec-Fetch-Site contains an unsupported value',
-            );
+            return;
         }
 
         if ($site !== 'cross-site') {
@@ -253,6 +252,55 @@ final class CsrfMiddleware implements MiddlewareInterface
         return $request
             ->withAttribute(self::ATTR_TOKEN, $token)
             ->withAttribute(self::ATTR_TOKEN_MANAGER, $this->tokenManager);
+    }
+
+    private function addSecurityVary(ResponseInterface $response): ResponseInterface
+    {
+        $headers = [];
+
+        if ($this->checkOrigin) {
+            $headers[] = 'Origin';
+        }
+
+        if ($this->checkFetchMetadata) {
+            $headers[] = 'Sec-Fetch-Site';
+        }
+
+        if ($headers === []) {
+            return $response;
+        }
+
+        $current = [];
+
+        foreach ($response->getHeader('Vary') as $line) {
+            foreach (explode(',', $line) as $part) {
+                $value = trim($part);
+
+                if ($value === '') {
+                    continue;
+                }
+
+                if ($value === '*') {
+                    return $response->withHeader('Vary', '*');
+                }
+
+                $key = strtolower($value);
+
+                if (!array_key_exists($key, $current)) {
+                    $current[$key] = $value;
+                }
+            }
+        }
+
+        foreach ($headers as $header) {
+            $key = strtolower($header);
+
+            if (!array_key_exists($key, $current)) {
+                $current[$key] = $header;
+            }
+        }
+
+        return $response->withHeader('Vary', array_values($current));
     }
 
     private function forbidden(string $reason): ResponseInterface
