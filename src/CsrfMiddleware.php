@@ -24,6 +24,8 @@ final class CsrfMiddleware implements MiddlewareInterface
     /** @var list<string> */
     private readonly array $excludedPaths;
 
+    private readonly ?Origin $targetOrigin;
+
     /**
      * @param list<string> $trustedOrigins
      * @param list<string> $excludedPaths
@@ -39,6 +41,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         private readonly bool $checkFetchMetadata = true,
         private readonly bool $allowMissingOrigin = false,
         private readonly bool $debugFailureHeader = false,
+        ?string $targetOrigin = null,
     ) {
         if (preg_match("@^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$@D", $headerName) !== 1) {
             throw new InvalidArgumentException('CSRF token header name must be a valid HTTP field name.');
@@ -54,6 +57,7 @@ final class CsrfMiddleware implements MiddlewareInterface
 
         $this->trustedOrigins = self::normalizeTrustedOrigins($trustedOrigins);
         $this->excludedPaths = self::normalizeExcludedPaths($excludedPaths);
+        $this->targetOrigin = self::normalizeTargetOrigin($targetOrigin);
     }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -151,7 +155,7 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        $target = Origin::fromRequest($request);
+        $target = $this->targetOrigin ?? Origin::fromRequest($request);
 
         if ($target === null || $target->opaque) {
             throw new InvalidCsrfTokenException(
@@ -312,6 +316,24 @@ final class CsrfMiddleware implements MiddlewareInterface
         return $this->debugFailureHeader
             ? $response->withHeader('X-CSRF-Failure', $reason)
             : $response;
+    }
+
+    private static function normalizeTargetOrigin(?string $value): ?Origin
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $origin = Origin::fromSerialized($value);
+
+        if ($origin === null || $origin->opaque) {
+            throw new InvalidArgumentException(sprintf(
+                'CSRF target origin "%s" must be an explicit HTTP(S) origin.',
+                $value,
+            ));
+        }
+
+        return $origin;
     }
 
     /**
