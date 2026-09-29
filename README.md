@@ -57,6 +57,8 @@ Unsafe methods require all enabled layers to pass:
 
 Safe RFC methods `GET`, `HEAD`, `OPTIONS`, and `TRACE` do not require a submitted token and receive the active/generated CSRF token as a request attribute. HTTP method tokens are case-sensitive: lowercase lookalikes such as `get` are treated as custom unsafe methods and must pass CSRF validation.
 
+This classification follows RFC 9110 semantics. Application routes using a safe method **must not perform requested state-changing actions**; a state-changing `GET` is an HTTP contract violation and is outside the protection boundary of this middleware. OWASP likewise recommends not using `GET` for state changes.
+
 ### Fetch Metadata
 
 `checkFetchMetadata` defaults to `true`.
@@ -213,6 +215,8 @@ To reduce cookie-injection risk, its cookie is now constrained to `__Host-` sema
 
 The default name is `__Host-csrf_token`.
 
+These constraints follow the current cookie standard, RFC 10025 (July 2026), which obsoletes RFC 6265 and defines `__Host-` as Secure, host-only, and `Path=/`. SameSite remains defense in depth; the CSRF token is still required.
+
 ## Verification
 
 GitHub Actions verifies:
@@ -229,4 +233,5 @@ GitHub Actions verifies:
 - OWASP Cross-Site Request Forgery Prevention Cheat Sheet;
 - RFC 9110 safe-method and HTTP semantics;
 - RFC 6454 origin semantics;
+- RFC 10025 cookie security and `__Host-` prefix semantics;
 - Fetch Metadata request-header guidance.

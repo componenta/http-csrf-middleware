@@ -50,6 +50,8 @@ $tokens = new HmacCsrfTokenManager(
 
 Safe методы RFC `GET`, `HEAD`, `OPTIONS`, `TRACE` не требуют submitted token и получают активный/новый token через request attribute. HTTP method token регистрозависим: lowercase-формы вроде `get` считаются custom unsafe methods и обязаны пройти CSRF validation.
 
+Эта классификация следует семантике RFC 9110. Маршрут с safe method **не должен выполнять запрошенное изменение состояния**; state-changing `GET` нарушает HTTP-контракт и находится вне границы защиты этого middleware. OWASP также рекомендует не использовать `GET` для изменения состояния.
+
 ### Fetch Metadata
 
 `checkFetchMetadata=true` по умолчанию.
@@ -174,8 +176,10 @@ debugFailureHeader: true
 
 Default: `__Host-csrf_token`.
 
+Ограничения соответствуют актуальному RFC 10025 (июль 2026), который заменил RFC 6265 и определяет `__Host-` как Secure, host-only cookie с `Path=/`. SameSite остаётся defense in depth и не заменяет CSRF token.
+
 ## Проверка качества
 
 GitHub Actions проверяет PHP 8.4/8.5, lowest/highest dependencies, `composer validate --strict`, `composer audit`, PHPStan level max по `src/tests` и PHPUnit regression tests.
 
-Ориентиры: OWASP CSRF Prevention Cheat Sheet, RFC 9110, RFC 6454 и Fetch Metadata guidance.
+Ориентиры: OWASP CSRF Prevention Cheat Sheet, RFC 9110, RFC 6454, RFC 10025 и Fetch Metadata guidance.
