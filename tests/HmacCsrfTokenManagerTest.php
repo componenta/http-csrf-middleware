@@ -120,20 +120,51 @@ final class HmacCsrfTokenManagerTest extends TestCase
     public static function invalidConfiguration(): iterable
     {
         yield 'short key' => ['short', 'session-A:1', 60];
+        yield 'oversized key' => [str_repeat('k', 4097), 'session-A:1', 60];
         yield 'empty binding' => [self::KEY, '', 60];
         yield 'oversized binding' => [self::KEY, str_repeat('s', 4097), 60];
         yield 'zero ttl' => [self::KEY, 'session-A:1', 0];
         yield 'negative ttl' => [self::KEY, 'session-A:1', -1];
     }
 
-    public function testInvalidClockFailsExplicitly(): void
+    public function testConfigurationBoundaryValuesAreAccepted(): void
     {
-        $manager = new HmacCsrfTokenManager(self::KEY, 3600, 'session-A:1', clock: static fn() => 'invalid');
+        $manager = new HmacCsrfTokenManager(
+            str_repeat('k', 4096),
+            1,
+            str_repeat('s', 4096),
+            clock: static fn(): int => 1,
+        );
+
+        $token = $manager->generate();
+
+        self::assertTrue($manager->validate($token));
+    }
+
+    #[DataProvider('invalidClockValues')]
+    public function testInvalidClockFailsExplicitlyForNonPositiveOrNonIntegerValue(mixed $value): void
+    {
+        $manager = new HmacCsrfTokenManager(
+            self::KEY,
+            3600,
+            'session-A:1',
+            clock: static fn() => $value,
+        );
 
         $this->expectException(\UnexpectedValueException::class);
+
         $manager->generate();
     }
 
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function invalidClockValues(): iterable
+    {
+        yield 'string' => ['invalid'];
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+    }
 
     public function testLegacyTtlArgumentCannotBecomeASharedBindingInWeakMode(): void
     {
