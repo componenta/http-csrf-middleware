@@ -521,6 +521,9 @@ final class CsrfMiddlewareTest extends TestCase
         yield 'trusted origin contains path' => ['trustedOrigin', 'https://example.test/path'];
         yield 'empty excluded path' => ['excludedPath', ''];
         yield 'root excluded path' => ['excludedPath', '/'];
+        yield 'dot-segment excluded path' => ['excludedPath', '/webhook/../admin'];
+        yield 'encoded-separator excluded path' => ['excludedPath', '/webhook%2fadmin'];
+        yield 'backslash excluded path' => ['excludedPath', '/webhook\\admin'];
         yield 'header injection' => ['headerName', "X-CSRF\r\nInjected"];
         yield 'target origin contains path' => ['targetOrigin', 'https://example.test/path'];
         yield 'opaque target origin' => ['targetOrigin', 'null'];
