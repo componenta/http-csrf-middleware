@@ -87,7 +87,7 @@ final class CsrfMiddleware implements MiddlewareInterface
 
     private function isSafeMethod(ServerRequestInterface $request): bool
     {
-        return in_array(strtoupper($request->getMethod()), self::SAFE_METHODS, true);
+        return in_array($request->getMethod(), self::SAFE_METHODS, true);
     }
 
     private function isExcludedPath(ServerRequestInterface $request): bool
