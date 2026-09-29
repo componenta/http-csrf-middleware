@@ -456,6 +456,33 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(0, $lookalike->calls);
     }
 
+    #[DataProvider('ambiguousExcludedPaths')]
+    public function testAmbiguousRequestPathCannotBypassCsrfExclusion(string $path): void
+    {
+        $middleware = new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+            excludedPaths: ['/webhook'],
+        );
+        $handler = new CsrfProtectedHandler();
+
+        $response = $middleware->process($this->unsafeRequest($path), $handler);
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $handler->calls);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function ambiguousExcludedPaths(): iterable
+    {
+        yield 'literal dot segment' => ['/webhook/../admin'];
+        yield 'encoded dot segment' => ['/webhook/%2e%2e/admin'];
+        yield 'double-encoded dot segment' => ['/webhook/%252e%252e/admin'];
+        yield 'encoded path separator' => ['/webhook%2fadmin'];
+    }
+
     #[DataProvider('unsafeConfigurations')]
     public function testUnsafeConfigurationIsRejected(string $case, string $value): void
     {
