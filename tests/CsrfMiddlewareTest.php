@@ -195,6 +195,48 @@ final class CsrfMiddlewareTest extends TestCase
         yield 'different origin' => ['https://other.example'];
     }
 
+    public function testConfiguredTargetOriginCanUseTrustedServerSideOrigin(): void
+    {
+        $token = $this->manager('session-A')->generate();
+        $handler = new CsrfProtectedHandler();
+        $middleware = new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+            targetOrigin: 'https://shop.example',
+        );
+
+        $response = $middleware->process(
+            (new ServerRequest('POST', 'http://internal-service:8080/change'))
+                ->withHeader('Origin', 'https://shop.example')
+                ->withHeader('X-CSRF-Token', $token),
+            $handler,
+        );
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame(1, $handler->calls);
+    }
+
+    public function testConfiguredTargetOriginDoesNotTrustRequestUriHost(): void
+    {
+        $token = $this->manager('session-A')->generate();
+        $handler = new CsrfProtectedHandler();
+        $middleware = new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+            targetOrigin: 'https://shop.example',
+        );
+
+        $response = $middleware->process(
+            (new ServerRequest('POST', 'https://attacker.example/change'))
+                ->withHeader('Origin', 'https://attacker.example')
+                ->withHeader('X-CSRF-Token', $token),
+            $handler,
+        );
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $handler->calls);
+    }
+
     public function testInvalidTargetOriginFailsClosed(): void
     {
         $handler = new CsrfProtectedHandler();
@@ -435,6 +477,11 @@ final class CsrfMiddlewareTest extends TestCase
                 new Psr17Factory(),
                 headerName: $value,
             ),
+            'targetOrigin' => new CsrfMiddleware(
+                $this->manager('session-A'),
+                new Psr17Factory(),
+                targetOrigin: $value,
+            ),
             default => self::fail('Unknown unsafe configuration case.'),
         };
     }
@@ -448,6 +495,8 @@ final class CsrfMiddlewareTest extends TestCase
         yield 'empty excluded path' => ['excludedPath', ''];
         yield 'root excluded path' => ['excludedPath', '/'];
         yield 'header injection' => ['headerName', "X-CSRF\r\nInjected"];
+        yield 'target origin contains path' => ['targetOrigin', 'https://example.test/path'];
+        yield 'opaque target origin' => ['targetOrigin', 'null'];
     }
 
     public function testFailureReasonHeaderIsOptInOnly(): void
