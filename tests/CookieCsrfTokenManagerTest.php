@@ -57,21 +57,23 @@ final class CookieCsrfTokenManagerTest extends TestCase
         self::assertFalse($manager->validate(str_repeat('b', 64)));
     }
 
-    public function testLegacyCookieRequiresHostPrefixAndHostScope(): void
+    #[DataProvider('unsafeLegacyCookieConfigurations')]
+    public function testLegacyCookieRequiresHostPrefixAndHostScope(array $arguments): void
     {
-        foreach ([
-            static fn() => new CookieCsrfTokenManager(cookieName: 'csrf_token'),
-            static fn() => new CookieCsrfTokenManager(secure: false),
-            static fn() => new CookieCsrfTokenManager(path: '/app'),
-            static fn() => new CookieCsrfTokenManager(domain: 'example.test'),
-        ] as $factory) {
-            try {
-                $factory();
-                self::fail('Expected unsafe legacy cookie configuration to be rejected.');
-            } catch (\InvalidArgumentException) {
-                self::addToAssertionCount(1);
-            }
-        }
+        $this->expectException(\InvalidArgumentException::class);
+
+        new CookieCsrfTokenManager(...$arguments);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function unsafeLegacyCookieConfigurations(): iterable
+    {
+        yield 'missing Host prefix' => [['cookieName' => 'csrf_token']];
+        yield 'not secure' => [['secure' => false]];
+        yield 'non-root path' => [['path' => '/app']];
+        yield 'Domain attribute present' => [['domain' => 'example.test']];
     }
 
     public function testInvalidSameSiteFailsAtConfiguration(): void
