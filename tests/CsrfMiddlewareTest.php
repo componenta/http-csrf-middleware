@@ -292,34 +292,39 @@ final class CsrfMiddlewareTest extends TestCase
     }
 
     #[DataProvider('unsafeConfigurations')]
-    public function testUnsafeConfigurationIsRejected(array $arguments): void
+    public function testUnsafeConfigurationIsRejected(string $case, string $value): void
     {
         $this->expectException(InvalidArgumentException::class);
 
-        new CsrfMiddleware(
-            $this->manager('session-A'),
-            new Psr17Factory(),
-            ...$arguments,
-        );
+        match ($case) {
+            'trustedOrigin' => new CsrfMiddleware(
+                $this->manager('session-A'),
+                new Psr17Factory(),
+                trustedOrigins: [$value],
+            ),
+            'excludedPath' => new CsrfMiddleware(
+                $this->manager('session-A'),
+                new Psr17Factory(),
+                excludedPaths: [$value],
+            ),
+            'headerName' => new CsrfMiddleware(
+                $this->manager('session-A'),
+                new Psr17Factory(),
+                headerName: $value,
+            ),
+            default => self::fail('Unknown unsafe configuration case.'),
+        };
     }
 
     /**
-     * @return iterable<string, array{array<string, mixed>}>
+     * @return iterable<string, array{string, string}>
      */
     public static function unsafeConfigurations(): iterable
     {
-        yield 'trusted origin contains path' => [[
-            'trustedOrigins' => ['https://example.test/path'],
-        ]];
-        yield 'empty excluded path' => [[
-            'excludedPaths' => [''],
-        ]];
-        yield 'root excluded path' => [[
-            'excludedPaths' => ['/'],
-        ]];
-        yield 'header injection' => [[
-            'headerName' => "X-CSRF\r\nInjected",
-        ]];
+        yield 'trusted origin contains path' => ['trustedOrigin', 'https://example.test/path'];
+        yield 'empty excluded path' => ['excludedPath', ''];
+        yield 'root excluded path' => ['excludedPath', '/'];
+        yield 'header injection' => ['headerName', "X-CSRF\r\nInjected"];
     }
 
     public function testFailureReasonHeaderIsOptInOnly(): void
