@@ -291,6 +291,33 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(0, $handler->calls);
     }
 
+    #[DataProvider('lowercaseStandardMethodNames')]
+    public function testLowercaseStandardMethodNameIsNotTreatedAsSafe(string $method): void
+    {
+        $handler = new CsrfProtectedHandler();
+
+        $response = (new CsrfMiddleware($this->manager('session-A'), new Psr17Factory()))
+            ->process(
+                (new ServerRequest($method, 'https://shop.example/change'))
+                    ->withHeader('Origin', 'https://shop.example'),
+                $handler,
+            );
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $handler->calls);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function lowercaseStandardMethodNames(): iterable
+    {
+        yield 'get' => ['get'];
+        yield 'head' => ['head'];
+        yield 'options' => ['options'];
+        yield 'trace' => ['trace'];
+    }
+
     #[DataProvider('safeMethods')]
     public function testSafeResponseDoesNotVaryOnUnsafeSecurityHeaders(string $method): void
     {
