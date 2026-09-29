@@ -48,7 +48,7 @@ $tokens = new HmacCsrfTokenManager(
 2. Origin/Referer;
 3. CSRF token.
 
-Safe методы RFC `GET`, `HEAD`, `OPTIONS`, `TRACE` не требуют submitted token и получают активный/новый token через request attribute.
+Safe методы RFC `GET`, `HEAD`, `OPTIONS`, `TRACE` не требуют submitted token и получают активный/новый token через request attribute. HTTP method token регистрозависим: lowercase-формы вроде `get` считаются custom unsafe methods и обязаны пройти CSRF validation.
 
 ### Fetch Metadata
 
