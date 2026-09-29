@@ -168,24 +168,31 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(1, $handler->calls);
     }
 
-    public function testOpaqueAndHostileOriginsAreRejectedEvenWithValidToken(): void
+    #[DataProvider('rejectedOrigins')]
+    public function testOpaqueAndHostileOriginsAreRejectedEvenWithValidToken(string $origin): void
     {
         $token = $this->manager('session-A')->generate();
+        $handler = new CsrfProtectedHandler();
 
-        foreach (['null', 'https://other.example'] as $origin) {
-            $handler = new CsrfProtectedHandler();
+        $response = (new CsrfMiddleware($this->manager('session-A'), new Psr17Factory()))
+            ->process(
+                (new ServerRequest('POST', 'https://shop.example/change'))
+                    ->withHeader('Origin', $origin)
+                    ->withHeader('X-CSRF-Token', $token),
+                $handler,
+            );
 
-            $response = (new CsrfMiddleware($this->manager('session-A'), new Psr17Factory()))
-                ->process(
-                    (new ServerRequest('POST', 'https://shop.example/change'))
-                        ->withHeader('Origin', $origin)
-                        ->withHeader('X-CSRF-Token', $token),
-                    $handler,
-                );
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $handler->calls);
+    }
 
-            self::assertSame(403, $response->getStatusCode());
-            self::assertSame(0, $handler->calls);
-        }
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function rejectedOrigins(): iterable
+    {
+        yield 'opaque null' => ['null'];
+        yield 'different origin' => ['https://other.example'];
     }
 
     public function testInvalidTargetOriginFailsClosed(): void
@@ -284,37 +291,35 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(0, $lookalike->calls);
     }
 
-    public function testUnsafeConfigurationIsRejected(): void
+    #[DataProvider('unsafeConfigurations')]
+    public function testUnsafeConfigurationIsRejected(array $arguments): void
     {
-        foreach ([
-            static fn() => new CsrfMiddleware(
-                new HmacCsrfTokenManager(str_repeat('k', 32), 60, 'session'),
-                new Psr17Factory(),
-                trustedOrigins: ['https://example.test/path'],
-            ),
-            static fn() => new CsrfMiddleware(
-                new HmacCsrfTokenManager(str_repeat('k', 32), 60, 'session'),
-                new Psr17Factory(),
-                excludedPaths: [''],
-            ),
-            static fn() => new CsrfMiddleware(
-                new HmacCsrfTokenManager(str_repeat('k', 32), 60, 'session'),
-                new Psr17Factory(),
-                excludedPaths: ['/'],
-            ),
-            static fn() => new CsrfMiddleware(
-                new HmacCsrfTokenManager(str_repeat('k', 32), 60, 'session'),
-                new Psr17Factory(),
-                headerName: "X-CSRF\r\nInjected",
-            ),
-        ] as $factory) {
-            try {
-                $factory();
-                self::fail('Expected unsafe CSRF configuration to be rejected.');
-            } catch (InvalidArgumentException) {
-                self::addToAssertionCount(1);
-            }
-        }
+        $this->expectException(InvalidArgumentException::class);
+
+        new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+            ...$arguments,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function unsafeConfigurations(): iterable
+    {
+        yield 'trusted origin contains path' => [[
+            'trustedOrigins' => ['https://example.test/path'],
+        ]];
+        yield 'empty excluded path' => [[
+            'excludedPaths' => [''],
+        ]];
+        yield 'root excluded path' => [[
+            'excludedPaths' => ['/'],
+        ]];
+        yield 'header injection' => [[
+            'headerName' => "X-CSRF\r\nInjected",
+        ]];
     }
 
     public function testFailureReasonHeaderIsOptInOnly(): void
