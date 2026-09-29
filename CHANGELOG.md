@@ -9,6 +9,7 @@ Security-compatibility patch release.
 - Unknown Fetch Metadata never bypasses the existing Origin/Referer and CSRF-token validation layers.
 - Successful unsafe responses now emit cache-correct `Vary` fields for the security-context request headers that influence the allow/deny decision.
 - Safe-method responses keep their original `Vary` contract.
+- HTTP safe-method classification is now case-sensitive as required by RFC 9110; lowercase lookalikes such as `get` no longer bypass unsafe-request CSRF validation.
 
 ### Verification
 - PHP 8.4 and 8.5, lowest and highest dependency sets.
