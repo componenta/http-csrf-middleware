@@ -34,7 +34,7 @@
             "@phpstan",
             "@test"
         ],
-        "mutation": "@php vendor/bin/infection --threads=max --min-msi=80 --min-covered-msi=80 --no-progress"
+        "mutation": "@php vendor/bin/infection --threads=4 --min-msi=80 --min-covered-msi=80 --no-progress"
     },
     "config": {
         "sort-packages": true,
