@@ -89,11 +89,21 @@ allowMissingOrigin: true
 
 CSRF token при этом всё равно обязателен.
 
-### Reverse proxy
+### Target origin и reverse proxy
 
-CSRF middleware не должно само доверять `X-Forwarded-*`.
+Если внешний origin приложения фиксирован, предпочтительно задать доверенный server-side target origin явно:
 
-Правильный порядок:
+```php
+new CsrfMiddleware(
+    tokenManager: $tokens,
+    responseFactory: $responseFactory,
+    targetOrigin: 'https://shop.example.com',
+);
+```
+
+`targetOrigin` должен быть точным non-opaque HTTP(S) origin. При его наличии Origin/Referer сравниваются с этой конфигурацией, а не с URI входящего запроса. Это соответствует рекомендации OWASP использовать доверенный configured target origin, когда это возможно, и убирает зависимость CSRF trust от Host или реконструкции proxy headers.
+
+Если публичный origin динамический, CSRF middleware не должно само доверять `X-Forwarded-*`. Правильный порядок:
 
 ```text
 TrustedProxyMiddleware
@@ -101,7 +111,7 @@ TrustedProxyMiddleware
     -> application
 ```
 
-`componenta/http-trusted-proxy-middleware` сначала нормализует scheme/host/port только от trusted proxies и удаляет raw forwarding headers.
+`componenta/http-trusted-proxy-middleware` сначала нормализует scheme/host/port только от trusted proxies и удаляет raw forwarding headers. Без `targetOrigin` CSRF middleware сравнивает source origin с этим нормализованным PSR-7 URI.
 
 ### Trusted origins
 

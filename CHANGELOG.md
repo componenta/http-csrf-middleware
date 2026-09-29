@@ -5,6 +5,9 @@
 ### Fixed
 - Excluded paths now bypass CSRF before safe-method token injection, matching the documented contract for webhook-style exclusions on every HTTP method.
 
+### Added
+- Optional `targetOrigin` lets deployments pin Origin/Referer validation to a trusted server-side HTTP(S) origin instead of deriving the target from the incoming request URI.
+
 ### Documentation
 - Clarified that RFC 9110 safe methods must not be used for requested state changes.
 - Updated cookie guidance to RFC 10025, which obsoletes RFC 6265 and standardizes the `__Host-` prefix constraints used by the legacy cookie manager.

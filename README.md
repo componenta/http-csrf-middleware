@@ -107,11 +107,21 @@ new CsrfMiddleware(
 
 The CSRF token is still mandatory on unsafe methods.
 
-### Reverse proxies
+### Target origin and reverse proxies
 
-Do not read `X-Forwarded-*` directly inside CSRF middleware.
+When the externally visible application origin is fixed, prefer an explicit trusted server-side target origin:
 
-When the application is behind a reverse proxy, normalize the effective request URI first with `componenta/http-trusted-proxy-middleware`:
+```php
+new CsrfMiddleware(
+    tokenManager: $tokens,
+    responseFactory: $responseFactory,
+    targetOrigin: 'https://shop.example.com',
+);
+```
+
+`targetOrigin` must be an exact non-opaque HTTP(S) origin. When configured, Origin/Referer checks compare against it instead of deriving the target from the incoming request URI. This follows OWASP guidance to use a trusted configured target origin where possible and avoids making CSRF trust depend on an attacker-influenced Host value or proxy reconstruction.
+
+If the public origin is dynamic, do not read `X-Forwarded-*` directly inside CSRF middleware. Normalize the effective request URI first with `componenta/http-trusted-proxy-middleware`:
 
 ```text
 TrustedProxyMiddleware
@@ -119,7 +129,7 @@ TrustedProxyMiddleware
     -> application
 ```
 
-Only configured trusted proxies may affect scheme/host/port. The CSRF middleware then compares source origin against the normalized PSR-7 URI.
+Only configured trusted proxies may affect scheme/host/port. With no `targetOrigin`, the CSRF middleware compares the source origin against that normalized PSR-7 URI.
 
 ### Trusted origins
 
