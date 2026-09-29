@@ -55,7 +55,7 @@ Unsafe methods require all enabled layers to pass:
 2. Origin/Referer verification;
 3. CSRF token verification.
 
-Safe RFC methods `GET`, `HEAD`, `OPTIONS`, and `TRACE` do not require a submitted token and receive the active/generated CSRF token as a request attribute.
+Safe RFC methods `GET`, `HEAD`, `OPTIONS`, and `TRACE` do not require a submitted token and receive the active/generated CSRF token as a request attribute. HTTP method tokens are case-sensitive: lowercase lookalikes such as `get` are treated as custom unsafe methods and must pass CSRF validation.
 
 ### Fetch Metadata
 
