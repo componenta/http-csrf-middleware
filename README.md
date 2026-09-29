@@ -1,8 +1,8 @@
 # Componenta HTTP CSRF Middleware
 
-CSRF token managers and PSR-15 middleware for PHP 8.4+. The package checks tokens
-on unsafe HTTP methods, with optional Origin/Referer checks. Authentication,
-session ownership, body parsing, CORS and routing belong to the application.
+PSR-15 CSRF protection and token managers for PHP 8.4+.
+
+The package combines a session-bound CSRF token with browser request-context checks. Stateful applications should prefer a synchronizer token or a session-bound HMAC token. SameSite cookies and Fetch Metadata are defense-in-depth controls, not replacements for a CSRF token.
 
 ## Installation
 
@@ -10,113 +10,223 @@ session ownership, body parsing, CORS and routing belong to the application.
 composer require componenta/http-csrf-middleware
 ```
 
-This package has no config provider. Supply a token manager and a PSR-17 response
-factory explicitly.
+The package has no config provider. Construct the middleware and a PSR-17 response factory explicitly.
 
-## Token managers
+## Recommended token managers
 
-| Manager | Context and storage |
+| Manager | Use |
 |---|---|
-| `SessionCsrfTokenManager` | Random token in native PHP `$_SESSION`. Starts a session when needed and fails if storage cannot be opened. |
-| `HmacCsrfTokenManager` | Signed token with mandatory trusted session binding; no token storage. |
-| `CookieCsrfTokenManager` | Legacy unsigned double-submit cookie using `setcookie()`. |
+| `HmacCsrfTokenManager` | Stateless token signed with a server secret and bound to trusted session state. |
+| `SessionCsrfTokenManager` | 256-bit random synchronizer token stored in a native PHP session. |
+| `CookieCsrfTokenManager` | Legacy double-submit mode only; deprecated for new integrations. |
 
-For Auth 3, use `AuthSessionCsrfTokenManager` and `AuthSessionCsrfMiddleware` from
-`componenta/auth-session-http`. They derive tokens from the authenticated session
-UUID and credential generation.
-
-The legacy cookie manager does **not** prevent cookie-injection attacks. Do not
-choose it for new integrations; use a native session or session-bound HMAC manager.
-It uses native response headers, so it is not a PSR-7 cookie transport.
+For Auth 3 browser sessions use `AuthSessionCsrfTokenManager` / `AuthSessionCsrfMiddleware` from `componenta/auth-session-http`. They bind the token to the authenticated session UUID and credential generation.
 
 ## Session-bound HMAC
 
 ```php
-use Componenta\Http\Middleware\Csrf\CsrfMiddleware;
-use Componenta\Http\Middleware\Csrf\HmacCsrfTokenManager;
-
-// Resolve these from authenticated server-side state, not submitted request data.
 $tokens = new HmacCsrfTokenManager(
     secretKey: $csrfKey,
-    sessionBinding: $authenticatedSessionId . ':' . $credentialGeneration,
     ttl: 3600,
+    sessionBinding: $authenticatedSessionId . ':' . $credentialGeneration,
 );
-$middleware = new CsrfMiddleware($tokens, $responseFactory);
+
+$middleware = new CsrfMiddleware(
+    tokenManager: $tokens,
+    responseFactory: $responseFactory,
+);
 ```
 
-Use a cryptographically random server key of at least 32 bytes. The binding must
-identify the current session, change at each new login and at the credential
-rotations that should invalidate CSRF tokens, and be resolved independently of
-the submitted token. A static user ID, email or tenant ID is insufficient.
-For pre-login flows, use a trusted browser-bound pre-authentication transaction
-instead of a shared constant.
+Requirements:
 
-Construct the manager for each request/session. Never retain a manager as a
-singleton across users or reuse it after changing the session. The package
-cannot infer session revocation: authenticate and validate the current session
-before creating the manager.
+- use a cryptographically random server key of at least 32 bytes;
+- derive `sessionBinding` from trusted server-side session state;
+- change the binding on login/session rotation and credential generations that must invalidate CSRF tokens;
+- never derive the binding from submitted request data;
+- create the manager for the current request/session context, not as a cross-user singleton.
 
-Tokens use `v2.nonce.timestamp.mac`. The MAC includes an unambiguous encoding of
-the binding and a protocol-specific prefix; the binding itself is not disclosed
-in the token. Another session or credential generation cannot validate the token.
-Malformed, tampered, expired and legacy unbound tokens are rejected. TTL is a
-positive number of seconds; exactly TTL seconds old remains valid, while a token
-over 30 seconds in the future is rejected. The optional `clock` closure must
-return a positive integer Unix timestamp.
+Tokens use `v2.nonce.timestamp.mac`. The binding is covered by the MAC but is not disclosed in the token. Validation uses constant-time comparison, rejects malformed/legacy tokens, enforces TTL, and permits at most 30 seconds of future clock skew.
 
-This session-binding requirement follows the
-[OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#signed-double-submit-cookie-recommended).
+## Middleware security model
 
-## Middleware behavior
+Unsafe methods require all enabled layers to pass:
 
-Safe methods (`GET`, `HEAD`, `OPTIONS`, `TRACE`) do not validate submitted tokens.
-Unsafe methods use `X-CSRF-Token` first, otherwise parsed body field `_csrf_token`.
-An invalid nonempty header cannot fall back to a valid body token.
+1. Fetch Metadata policy;
+2. Origin/Referer verification;
+3. CSRF token verification.
 
-For a form or client request, obtain the token from the injected request attribute
-`csrf_token` and submit it explicitly in the header or body. The manager is also
-available as `csrf_token_manager`. Never put CSRF tokens in URLs or logs.
+Safe RFC methods `GET`, `HEAD`, `OPTIONS`, and `TRACE` do not require a submitted token and receive the active/generated CSRF token as a request attribute.
 
-`checkOrigin` defaults to `true`. When both Origin and Referer are absent, token
-validation still applies. `trustedOrigins` adds explicit allowed origins.
-`excludedPaths` exempts configured path prefixes; use it only for routes protected
-by a separate authentication mechanism, such as verified provider webhooks.
+### Fetch Metadata
 
-An invalid/missing token or rejected origin returns HTTP 403 without calling the
-protected handler. Invalid server configuration and storage/clock failures raise
-exceptions; they are not converted into successful requests.
+`checkFetchMetadata` defaults to `true`.
 
-## Manager contract and native storage
+Unsafe requests with:
 
-All managers implement `CsrfTokenManagerInterface`:
+```http
+Sec-Fetch-Site: cross-site
+```
 
-- `generate()` provides a token; a stored-token manager may replace its previous
-  token, while a keyed session implementation may return a stable token.
-- `getActive()` obtains a usable token without creating or rotating token state,
-  or returns `null`. A keyed implementation can derive it on demand.
-- `validate()` checks the submitted token for the current context.
+are rejected before token validation unless their `Origin` is listed explicitly in `trustedOrigins`.
 
-Native-session tokens use `_csrf_token` by default. Reuse `getActive()` when
-rendering more forms; calling `generate()` invalidates the previous stored token.
-Non-string/empty session values are unavailable. Native session startup failures
-throw `RuntimeException`.
+Recognized values are:
 
-The legacy cookie defaults are `csrf_token`, TTL 7200, path `/`, no domain,
-`Secure`, `HttpOnly` and `SameSite=Strict`. SameSite accepts Strict/Lax/None
-case-insensitively; None requires Secure. TTL must be positive. Malformed cookies
-are unavailable, and generation replaces the current request's cached token.
-`clear()` expires the cookie and clears that cache. Headers must still be writable;
-a failed `setcookie()` raises `RuntimeException`.
+- `same-origin`;
+- `same-site`;
+- `cross-site`;
+- `none`.
 
-## Migration to 2.0
+Malformed values fail closed.
 
-The constructor is now `(secretKey, ttl, sessionBinding, clock = null)`.
-TTL and the binding are required. Keeping TTL in its original position prevents
-weakly typed old calls from turning an integer TTL into a shared binding.
-Old two-argument calls fail with `ArgumentCountError`; old three-argument
-calls with a clock closure or `null` fail with `TypeError`.
-Replace `new HmacCsrfTokenManager($key, $ttl)` with named arguments including the
-trusted binding. Old tokens are intentionally invalid and must be obtained again
-from a form/token response. There is no compatibility mode accepting unbound
-signatures. The `CsrfTokenManagerInterface` method signatures and Auth 3's existing
-session-bound manager remain compatible.
+Fetch Metadata is browser-controlled defense in depth. It does not replace the CSRF token and can be absent on legacy/non-browser clients.
+
+### Origin and Referer
+
+`checkOrigin` defaults to `true`.
+
+The middleware prefers `Origin`; when it is absent it falls back to `Referer`. Both are compared as exact origins including scheme, host, and effective port.
+
+The following fail closed:
+
+- malformed `Origin` / `Referer`;
+- `Origin: null`;
+- target request URI without a trustworthy HTTP(S) scheme/host;
+- both `Origin` and `Referer` missing.
+
+For a legacy/non-browser integration that cannot send either source header, the compatibility escape hatch is explicit:
+
+```php
+new CsrfMiddleware(
+    tokenManager: $tokens,
+    responseFactory: $responseFactory,
+    allowMissingOrigin: true,
+);
+```
+
+The CSRF token is still mandatory on unsafe methods.
+
+### Reverse proxies
+
+Do not read `X-Forwarded-*` directly inside CSRF middleware.
+
+When the application is behind a reverse proxy, normalize the effective request URI first with `componenta/http-trusted-proxy-middleware`:
+
+```text
+TrustedProxyMiddleware
+    -> CsrfMiddleware
+    -> application
+```
+
+Only configured trusted proxies may affect scheme/host/port. The CSRF middleware then compares source origin against the normalized PSR-7 URI.
+
+### Trusted origins
+
+`trustedOrigins` is an explicit exact allowlist:
+
+```php
+trustedOrigins: [
+    'https://app.example.com',
+    'https://admin.example.com:8443',
+]
+```
+
+Entries must be exact HTTP(S) origins. Paths, queries, fragments, userinfo, opaque `null`, and malformed values are rejected during construction.
+
+No suffix/subdomain wildcard matching is performed.
+
+## Token submission
+
+Header submission is preferred:
+
+```http
+X-CSRF-Token: <token>
+```
+
+HTML forms may submit:
+
+```text
+_csrf_token=<token>
+```
+
+If the configured header is present, it has precedence over the body. An empty, invalid, or multiply-specified token header cannot fall back to a valid body token.
+
+CSRF tokens must not be placed in URLs or logs.
+
+## Excluded paths
+
+`excludedPaths` is intended only for endpoints protected by a different trust mechanism, such as signed webhooks.
+
+Matching is path-segment aware:
+
+```php
+excludedPaths: ['/webhook']
+```
+
+matches:
+
+- `/webhook`;
+- `/webhook/provider`;
+
+but not:
+
+- `/webhook-admin`.
+
+Empty, root-only, query-bearing, and fragment-bearing exclusions are rejected. Excluded requests bypass CSRF entirely and do not receive token attributes.
+
+## Failure responses
+
+Rejected requests receive 403 plus:
+
+```http
+Cache-Control: no-store
+Pragma: no-cache
+```
+
+Detailed reasons are not exposed by default.
+
+For local diagnostics only:
+
+```php
+debugFailureHeader: true
+```
+
+adds `X-CSRF-Failure`.
+
+## Native session manager
+
+`SessionCsrfTokenManager` stores a 32-byte random token as 64 lowercase hex characters. Stored session values that do not match this format are treated as unavailable.
+
+The manager starts the native PHP session when needed and throws if session storage cannot be opened.
+
+Session identifier rotation/fixation prevention remains the responsibility of the authentication/session layer.
+
+## Legacy cookie manager
+
+`CookieCsrfTokenManager` is deprecated for new code. It is an unsigned double-submit pattern and should be replaced with the session or HMAC managers.
+
+To reduce cookie-injection risk, its cookie is now constrained to `__Host-` semantics:
+
+- cookie name must start with `__Host-`;
+- `Secure=true`;
+- `Path=/`;
+- no `Domain` attribute.
+
+The default name is `__Host-csrf_token`.
+
+## Verification
+
+GitHub Actions verifies:
+
+- PHP 8.4 and 8.5;
+- lowest and highest supported dependencies;
+- `composer validate --strict`;
+- `composer audit`;
+- PHPStan level max for `src` and `tests`;
+- PHPUnit security regression tests.
+
+## References
+
+- OWASP Cross-Site Request Forgery Prevention Cheat Sheet;
+- RFC 9110 safe-method and HTTP semantics;
+- RFC 6454 origin semantics;
+- Fetch Metadata request-header guidance.
