@@ -58,12 +58,12 @@ final class CsrfMiddleware implements MiddlewareInterface
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        if ($this->isSafeMethod($request)) {
-            return $handler->handle($this->injectToken($request));
-        }
-
         if ($this->isExcludedPath($request)) {
             return $handler->handle($request);
+        }
+
+        if ($this->isSafeMethod($request)) {
+            return $handler->handle($this->injectToken($request));
         }
 
         try {
