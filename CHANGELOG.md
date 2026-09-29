@@ -4,6 +4,7 @@
 
 ### Fixed
 - Excluded paths now bypass CSRF before safe-method token injection, matching the documented contract for webhook-style exclusions on every HTTP method.
+- Exclusion matching now fails closed on ambiguous raw request paths and rejects ambiguous configured prefixes, covering dot-segments, backslashes, encoded NUL/path separators/dot-segments, and nested percent-encoding forms that can otherwise produce proxy/router path confusion.
 
 ### Added
 - Optional `targetOrigin` lets deployments pin Origin/Referer validation to a trusted server-side HTTP(S) origin instead of deriving the target from the incoming request URI.

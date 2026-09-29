@@ -150,7 +150,7 @@ excludedPaths: ['/webhook']
 
 совпадает с `/webhook` и `/webhook/provider`, но не с `/webhook-admin`.
 
-Пустой path, `/`, query/fragment запрещены. На excluded request CSRF полностью не выполняется и token attributes не добавляются.
+Пустой path, `/`, query/fragment и неоднозначные пути запрещены. Exclusion fail-closed для literal dot segments, backslash, NUL, encoded path separators/dot segments и их повторного percent-encoding. Это не позволяет различиям нормализации между proxy/router и middleware превратить webhook-exemption в CSRF bypass. Только после этих проверок excluded request полностью обходит CSRF и не получает token attributes.
 
 ## Ошибки
 
@@ -192,4 +192,4 @@ Default: `__Host-csrf_token`.
 
 GitHub Actions проверяет PHP 8.4/8.5, lowest/highest dependencies, `composer validate --strict`, `composer audit`, PHPStan level max по `src/tests` и PHPUnit regression tests.
 
-Ориентиры: OWASP CSRF Prevention Cheat Sheet, RFC 9110, RFC 6454, RFC 10025 и Fetch Metadata guidance.
+Ориентиры: OWASP CSRF Prevention Cheat Sheet и path-confusion/canonicalization guidance, RFC 9110, RFC 6454, RFC 10025 и Fetch Metadata guidance.

@@ -183,7 +183,7 @@ but not:
 
 - `/webhook-admin`.
 
-Empty, root-only, query-bearing, and fragment-bearing exclusions are rejected. Excluded requests bypass CSRF entirely and do not receive token attributes.
+Empty, root-only, query-bearing, fragment-bearing, and path-confusing exclusions are rejected. Exclusion matching fails closed for ambiguous request paths such as literal dot segments, backslashes, NULs, encoded path separators/dot segments, and their repeatedly percent-encoded forms. This prevents a proxy/router normalization mismatch from turning a webhook-style exemption into a CSRF bypass. Excluded requests that pass these checks bypass CSRF entirely and do not receive token attributes.
 
 ## Failure responses
 
@@ -244,4 +244,5 @@ GitHub Actions verifies:
 - RFC 9110 safe-method and HTTP semantics;
 - RFC 6454 origin semantics;
 - RFC 10025 cookie security and `__Host-` prefix semantics;
-- Fetch Metadata request-header guidance.
+- Fetch Metadata request-header guidance;
+- OWASP path-confusion/canonicalization guidance for security-relevant path matching.
