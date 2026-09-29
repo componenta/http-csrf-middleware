@@ -46,6 +46,7 @@ final class CookieCsrfTokenManagerTest extends TestCase
         yield 'integer' => [123];
         yield 'empty' => [''];
         yield 'wrong format' => ['attacker-value'];
+        yield 'uppercase hex' => [str_repeat('A', 64)];
     }
 
     public function testExistingGeneratedCookieCanBeValidated(): void
@@ -82,6 +83,38 @@ final class CookieCsrfTokenManagerTest extends TestCase
         yield 'Domain attribute present' => ['domain', 'example.test'];
     }
 
+    public function testPositiveMinimumCookieLifetimeIsAccepted(): void
+    {
+        $manager = new CookieCsrfTokenManager(ttl: 1);
+
+        self::assertTrue($manager->validate($manager->generate()));
+    }
+
+    public function testNonPositiveCookieLifetimeIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new CookieCsrfTokenManager(ttl: 0);
+    }
+
+    #[DataProvider('supportedSameSiteValues')]
+    public function testSupportedSameSiteValuesAreCaseInsensitive(string $sameSite): void
+    {
+        $manager = new CookieCsrfTokenManager(sameSite: $sameSite);
+
+        self::assertTrue($manager->validate($manager->generate()));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function supportedSameSiteValues(): iterable
+    {
+        yield 'strict' => ['STRICT'];
+        yield 'lax' => ['lAx'];
+        yield 'none' => ['NoNe'];
+    }
+
     public function testInvalidSameSiteFailsAtConfiguration(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -89,10 +122,4 @@ final class CookieCsrfTokenManagerTest extends TestCase
         new CookieCsrfTokenManager(sameSite: 'typo');
     }
 
-    public function testSupportedSameSiteIsCaseInsensitive(): void
-    {
-        $manager = new CookieCsrfTokenManager(sameSite: 'lax');
-
-        self::assertTrue($manager->validate($manager->generate()));
-    }
 }
