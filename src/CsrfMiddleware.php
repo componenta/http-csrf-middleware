@@ -98,6 +98,10 @@ final class CsrfMiddleware implements MiddlewareInterface
     {
         $path = $request->getUri()->getPath();
 
+        if (!self::isUnambiguousExclusionPath($path)) {
+            return false;
+        }
+
         foreach ($this->excludedPaths as $prefix) {
             if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
                 return true;
@@ -105,6 +109,25 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
 
         return false;
+    }
+
+    private static function isUnambiguousExclusionPath(string $path): bool
+    {
+        if (str_contains($path, '\\')) {
+            return false;
+        }
+
+        if (preg_match('/%(?:25)*(?:00|2e|2f|5c)/i', $path) === 1) {
+            return false;
+        }
+
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '.' || $segment === '..') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
