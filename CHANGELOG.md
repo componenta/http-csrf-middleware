@@ -16,7 +16,7 @@ Security-compatibility patch release.
 - Composer strict validation and security audit.
 - PHPStan level max over source and tests.
 - Strict PHPUnit configuration.
-- Infection mutation coverage 100%; covered-code MSI remains above the required 80%.
+- Infection mutation coverage 100%; covered-code MSI 81%.
 
 ## v3.0.0
 
