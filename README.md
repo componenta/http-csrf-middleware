@@ -76,9 +76,9 @@ Recognized values are:
 - `cross-site`;
 - `none`.
 
-Malformed values fail closed.
+Unknown future `Sec-Fetch-Site` values are ignored for forward compatibility; the request still has to pass the configured Origin/Referer and CSRF-token checks.
 
-Fetch Metadata is browser-controlled defense in depth. It does not replace the CSRF token and can be absent on legacy/non-browser clients.
+Fetch Metadata is browser-controlled defense in depth. It does not replace the CSRF token and can be absent on legacy/non-browser clients. Successful unsafe responses add `Vary: Origin, Sec-Fetch-Site` for the checks that are enabled, while preserving `Vary: *`.
 
 ### Origin and Referer
 
