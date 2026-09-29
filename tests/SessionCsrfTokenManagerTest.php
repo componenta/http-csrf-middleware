@@ -74,6 +74,16 @@ final class SessionCsrfTokenManagerTest extends TestCase
     {
         yield 'empty' => [''];
         yield 'control characters' => ["bad\r\nkey"];
+        yield 'too long' => [str_repeat('k', 257)];
+    }
+
+    public function testMaximumSessionKeyLengthIsAccepted(): void
+    {
+        $manager = new SessionCsrfTokenManager(str_repeat('k', 256));
+
+        $token = $manager->generate();
+
+        self::assertTrue($manager->validate($token));
     }
 
     public function testEmptySessionValueIsUnavailable(): void
