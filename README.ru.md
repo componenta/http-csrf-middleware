@@ -62,9 +62,9 @@ Sec-Fetch-Site: cross-site
 
 блокируется до проверки токена, кроме exact origins из `trustedOrigins`.
 
-Поддерживаются `same-origin`, `same-site`, `cross-site`, `none`. Неизвестное значение блокируется.
+Поддерживаются `same-origin`, `same-site`, `cross-site`, `none`. Неизвестное будущее значение `Sec-Fetch-Site` игнорируется для forward compatibility; запрос всё равно обязан пройти проверки Origin/Referer и CSRF token.
 
-Fetch Metadata — дополнительная браузерная защита и не заменяет CSRF token.
+Fetch Metadata — дополнительная браузерная защита и не заменяет CSRF token. Успешный unsafe-ответ добавляет `Vary: Origin, Sec-Fetch-Site` для включённых проверок и сохраняет `Vary: *` без расширения.
 
 ### Origin / Referer
 
