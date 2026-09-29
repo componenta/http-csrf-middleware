@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v3.1.0
 
 ### Fixed
 - Excluded paths now bypass CSRF before safe-method token injection, matching the documented contract for webhook-style exclusions on every HTTP method.
@@ -12,6 +12,13 @@
 ### Documentation
 - Clarified that RFC 9110 safe methods must not be used for requested state changes.
 - Updated cookie guidance to RFC 10025, which obsoletes RFC 6265 and standardizes the `__Host-` prefix constraints used by the legacy cookie manager.
+
+### Verification
+- PHP 8.4 and 8.5, lowest and highest dependency sets.
+- Composer strict validation and security audit.
+- PHPStan level max over source and tests.
+- Strict PHPUnit regression suite.
+- Infection mutation testing.
 
 ## v3.0.1
 
