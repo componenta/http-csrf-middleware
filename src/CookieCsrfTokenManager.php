@@ -106,7 +106,6 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
         if (!setcookie($this->cookieName, $value, [
             'expires' => $expires,
             'path' => $this->path,
-            'domain' => $this->domain,
             'secure' => $this->secure,
             'httponly' => true,
             'samesite' => $this->sameSite,
