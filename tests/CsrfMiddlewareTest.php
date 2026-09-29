@@ -252,20 +252,72 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame(204, $response->getStatusCode());
     }
 
-    public function testMalformedFetchMetadataIsRejected(): void
+    public function testUnknownFetchMetadataFallsBackToOriginAndTokenValidation(): void
     {
+        $handler = new CsrfProtectedHandler();
+        $token = $this->manager('session-A')->generate();
+
         $response = (new CsrfMiddleware(
             $this->manager('session-A'),
             new Psr17Factory(),
-            checkOrigin: false,
         ))->process(
             (new ServerRequest('POST', 'https://shop.example/change'))
-                ->withHeader('Sec-Fetch-Site', 'attacker-value')
+                ->withHeader('Sec-Fetch-Site', 'future-value')
+                ->withHeader('Origin', 'https://shop.example')
+                ->withHeader('X-CSRF-Token', $token),
+            $handler,
+        );
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame(1, $handler->calls);
+    }
+
+    public function testUnknownFetchMetadataDoesNotBypassOriginValidation(): void
+    {
+        $handler = new CsrfProtectedHandler();
+
+        $response = (new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+        ))->process(
+            (new ServerRequest('POST', 'https://shop.example/change'))
+                ->withHeader('Sec-Fetch-Site', 'future-value')
+                ->withHeader('Origin', 'https://evil.example')
                 ->withHeader('X-CSRF-Token', $this->manager('session-A')->generate()),
-            new CsrfProtectedHandler(),
+            $handler,
         );
 
         self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $handler->calls);
+    }
+
+    public function testSuccessfulUnsafeResponseVariesOnSecurityContextHeaders(): void
+    {
+        $middleware = new CsrfMiddleware($this->manager('session-A'), new Psr17Factory());
+        $handler = new CsrfProtectedHandler(new Response(204, ['Vary' => 'Accept-Encoding']));
+        $request = $this->unsafeRequest()
+            ->withHeader('Sec-Fetch-Site', 'same-origin')
+            ->withHeader('X-CSRF-Token', $this->manager('session-A')->generate());
+
+        $response = $middleware->process($request, $handler);
+
+        self::assertSame(
+            'Accept-Encoding, Origin, Sec-Fetch-Site',
+            $response->getHeaderLine('Vary'),
+        );
+    }
+
+    public function testSuccessfulUnsafeResponsePreservesVaryWildcard(): void
+    {
+        $middleware = new CsrfMiddleware($this->manager('session-A'), new Psr17Factory());
+        $handler = new CsrfProtectedHandler(new Response(204, ['Vary' => '*']));
+        $request = $this->unsafeRequest()
+            ->withHeader('Sec-Fetch-Site', 'same-origin')
+            ->withHeader('X-CSRF-Token', $this->manager('session-A')->generate());
+
+        $response = $middleware->process($request, $handler);
+
+        self::assertSame('*', $response->getHeaderLine('Vary'));
     }
 
     public function testExcludedPathUsesPathSegmentBoundaryAndDoesNotInjectToken(): void
@@ -368,12 +420,16 @@ final class CsrfProtectedHandler implements RequestHandlerInterface
     public int $calls = 0;
     public ?string $token = null;
 
+    public function __construct(
+        private readonly ResponseInterface $response = new Response(204),
+    ) {}
+
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         ++$this->calls;
         $token = $request->getAttribute(CsrfMiddleware::ATTR_TOKEN);
         $this->token = is_string($token) ? $token : null;
 
-        return new Response(204);
+        return $this->response;
     }
 }
