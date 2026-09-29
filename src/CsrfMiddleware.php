@@ -59,9 +59,7 @@ final class CsrfMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         if ($this->isSafeMethod($request)) {
-            return $this->addSecurityVary(
-            $handler->handle($this->injectToken($request)),
-        );
+            return $handler->handle($this->injectToken($request));
         }
 
         if ($this->isExcludedPath($request)) {
@@ -82,7 +80,9 @@ final class CsrfMiddleware implements MiddlewareInterface
             return $this->forbidden($exception->reason);
         }
 
-        return $handler->handle($this->injectToken($request));
+        return $this->addSecurityVary(
+            $handler->handle($this->injectToken($request)),
+        );
     }
 
     private function isSafeMethod(ServerRequestInterface $request): bool
