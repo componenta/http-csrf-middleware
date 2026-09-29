@@ -372,6 +372,25 @@ final class CsrfMiddlewareTest extends TestCase
         self::assertSame('*', $response->getHeaderLine('Vary'));
     }
 
+    public function testExcludedSafePathBypassesTokenInjection(): void
+    {
+        $middleware = new CsrfMiddleware(
+            $this->manager('session-A'),
+            new Psr17Factory(),
+            excludedPaths: ['/webhook'],
+        );
+        $handler = new CsrfProtectedHandler();
+
+        $response = $middleware->process(
+            new ServerRequest('GET', 'https://shop.example/webhook'),
+            $handler,
+        );
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame(1, $handler->calls);
+        self::assertNull($handler->token);
+    }
+
     public function testExcludedPathUsesPathSegmentBoundaryAndDoesNotInjectToken(): void
     {
         $middleware = new CsrfMiddleware(
