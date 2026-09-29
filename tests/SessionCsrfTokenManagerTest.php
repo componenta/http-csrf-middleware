@@ -6,6 +6,7 @@ namespace Componenta\Http\Middleware\Csrf\Tests;
 
 use Componenta\Http\Middleware\Csrf\SessionCsrfTokenManager;
 use PHPUnit\Framework\Attributes\BackupGlobals;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 #[BackupGlobals(true)]
@@ -58,16 +59,21 @@ final class SessionCsrfTokenManagerTest extends TestCase
         self::assertFalse($manager->validate('weak-token'));
     }
 
-    public function testInvalidSessionKeyIsRejected(): void
+    #[DataProvider('invalidSessionKeys')]
+    public function testInvalidSessionKeyIsRejected(string $key): void
     {
-        foreach (['', "bad\r\nkey"] as $key) {
-            try {
-                new SessionCsrfTokenManager($key);
-                self::fail('Expected invalid session key to be rejected.');
-            } catch (\InvalidArgumentException) {
-                self::addToAssertionCount(1);
-            }
-        }
+        $this->expectException(\InvalidArgumentException::class);
+
+        new SessionCsrfTokenManager($key);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidSessionKeys(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'control characters' => ["bad\r\nkey"];
     }
 
     public function testEmptySessionValueIsUnavailable(): void
