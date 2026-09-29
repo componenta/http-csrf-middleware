@@ -103,7 +103,7 @@ final readonly class Origin implements \Stringable
             return null;
         }
 
-        if ($port !== null && ($port < 1 || $port > 65535)) {
+        if ($port === 0) {
             return null;
         }
 
