@@ -25,7 +25,7 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
         private readonly string $cookieName = '__Host-csrf_token',
         private readonly int $ttl = 7200,
         private readonly string $path = '/',
-        private readonly string $domain = '',
+        string $domain = '',
         private readonly bool $secure = true,
         string $sameSite = 'Strict',
     ) {
