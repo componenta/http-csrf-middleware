@@ -58,22 +58,28 @@ final class CookieCsrfTokenManagerTest extends TestCase
     }
 
     #[DataProvider('unsafeLegacyCookieConfigurations')]
-    public function testLegacyCookieRequiresHostPrefixAndHostScope(array $arguments): void
+    public function testLegacyCookieRequiresHostPrefixAndHostScope(string $case, string|bool $value): void
     {
         $this->expectException(\InvalidArgumentException::class);
 
-        new CookieCsrfTokenManager(...$arguments);
+        match ($case) {
+            'cookieName' => new CookieCsrfTokenManager(cookieName: (string) $value),
+            'secure' => new CookieCsrfTokenManager(secure: (bool) $value),
+            'path' => new CookieCsrfTokenManager(path: (string) $value),
+            'domain' => new CookieCsrfTokenManager(domain: (string) $value),
+            default => self::fail('Unknown cookie security case.'),
+        };
     }
 
     /**
-     * @return iterable<string, array{array<string, mixed>}>
+     * @return iterable<string, array{string, string|bool}>
      */
     public static function unsafeLegacyCookieConfigurations(): iterable
     {
-        yield 'missing Host prefix' => [['cookieName' => 'csrf_token']];
-        yield 'not secure' => [['secure' => false]];
-        yield 'non-root path' => [['path' => '/app']];
-        yield 'Domain attribute present' => [['domain' => 'example.test']];
+        yield 'missing Host prefix' => ['cookieName', 'csrf_token'];
+        yield 'not secure' => ['secure', false];
+        yield 'non-root path' => ['path', '/app'];
+        yield 'Domain attribute present' => ['domain', 'example.test'];
     }
 
     public function testInvalidSameSiteFailsAtConfiguration(): void
