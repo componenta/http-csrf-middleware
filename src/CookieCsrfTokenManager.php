@@ -36,9 +36,7 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
             default => throw new InvalidArgumentException('Unsupported SameSite value.'),
         };
 
-        if ($ttl < 1) {
-            throw new InvalidArgumentException('CSRF cookie lifetime must be positive.');
-        }
+        self::expiryForLifetime($ttl);
 
         if (
             !str_starts_with($cookieName, '__Host-')
@@ -99,9 +97,22 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
         $this->tokenRead = true;
     }
 
+    private static function expiryForLifetime(int $ttl): int
+    {
+        $now = time();
+        // PHP's setcookie() rejects years above 9999. Check before adding
+        // so an invalid configuration cannot overflow the integer range.
+        $maxExpiry = min(PHP_INT_MAX, 253402300799);
+        if ($ttl < 1 || $ttl > $maxExpiry - $now) {
+            throw new InvalidArgumentException('CSRF cookie lifetime is outside the supported expiry range.');
+        }
+
+        return $now + $ttl;
+    }
+
     private function setCookie(string $value, ?int $expires = null): void
     {
-        $expires ??= time() + $this->ttl;
+        $expires ??= self::expiryForLifetime($this->ttl);
 
         if (!setcookie($this->cookieName, $value, [
             'expires' => $expires,

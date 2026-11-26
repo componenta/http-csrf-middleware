@@ -108,9 +108,7 @@ final class CookieCsrfTokenManagerTest extends TestCase
     public static function unrepresentableCookieLifetimes(): iterable
     {
         yield [PHP_INT_MAX];
-        if (PHP_INT_SIZE >= 8) {
-            yield [(int) 253402300800];
-        }
+        yield [(int) min(PHP_INT_MAX, 253402300800)];
     }
 
     #[DataProvider('supportedSameSiteValues')]

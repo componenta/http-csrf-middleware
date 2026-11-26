@@ -271,3 +271,5 @@ $csrf = new CsrfMiddleware(
 The adapter stores a random synchronizer token in the current server-side session. A changed session ID invalidates the old token even when the session data survives regeneration. The session layer must securely create, persist and regenerate identifiers and must isolate session data. This adapter does not replace the separate Auth session integration. Use a session store that prevents lost updates if concurrent first requests must receive the same token.
 
 Responses that actually expose a per-session token must not be stored in shared caches: set `Cache-Control: private, no-store` on those responses. Do not treat `Vary: Origin` as a substitute for session-specific cache isolation.
+
+The legacy cookie manager rejects lifetimes that cannot be represented as a native PHP cookie expiry (including integer overflow or an expiry after year 9999).
