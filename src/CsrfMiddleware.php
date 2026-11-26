@@ -16,6 +16,7 @@ final class CsrfMiddleware implements MiddlewareInterface
     private const array SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
 
     public const string ATTR_TOKEN = 'csrf_token';
+    /** @deprecated Pass the token manager explicitly to consumers instead. */
     public const string ATTR_TOKEN_MANAGER = 'csrf_token_manager';
 
     /** @var list<Origin> */
@@ -27,11 +28,12 @@ final class CsrfMiddleware implements MiddlewareInterface
     private readonly ?Origin $targetOrigin;
 
     /**
+     * @param CsrfTokenManagerInterface|(\Closure(ServerRequestInterface): CsrfTokenManagerInterface) $tokenManager
      * @param list<string> $trustedOrigins
      * @param list<string> $excludedPaths
      */
     public function __construct(
-        private readonly CsrfTokenManagerInterface $tokenManager,
+        private readonly CsrfTokenManagerInterface|\Closure $tokenManager,
         private readonly ResponseFactoryInterface $responseFactory,
         private readonly string $headerName = 'X-CSRF-Token',
         private readonly string $fieldName = '_csrf_token',
@@ -42,6 +44,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         private readonly bool $allowMissingOrigin = false,
         private readonly bool $debugFailureHeader = false,
         ?string $targetOrigin = null,
+        private readonly bool $exposeTokenManager = true,
     ) {
         if (preg_match("@^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$@D", $headerName) !== 1) {
             throw new InvalidArgumentException('CSRF token header name must be a valid HTTP field name.');
@@ -67,7 +70,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
 
         if ($this->isSafeMethod($request)) {
-            return $handler->handle($this->injectToken($request));
+            return $handler->handle($this->injectToken($request, $this->managerFor($request)));
         }
 
         try {
@@ -79,13 +82,14 @@ final class CsrfMiddleware implements MiddlewareInterface
                 $this->verifyOrigin($request);
             }
 
-            $this->verifyToken($request);
+            $manager = $this->managerFor($request);
+            $this->verifyToken($request, $manager);
         } catch (InvalidCsrfTokenException $exception) {
             return $this->forbidden($exception->reason);
         }
 
         return $this->addSecurityVary(
-            $handler->handle($this->injectToken($request)),
+            $handler->handle($this->injectToken($request, $manager)),
         );
     }
 
@@ -117,7 +121,9 @@ final class CsrfMiddleware implements MiddlewareInterface
             return false;
         }
 
-        if (preg_match('/%(?:25)*(?:00|2e|2f|5c)/i', $path) === 1) {
+        // Exemptions are deliberately limited to plain, unambiguous paths.
+        // Do not attempt to predict a proxy/router's percent-decoding policy.
+        if (str_contains($path, '%') || str_contains($path, ';') || str_contains($path, '//')) {
             return false;
         }
 
@@ -225,7 +231,7 @@ final class CsrfMiddleware implements MiddlewareInterface
         }
     }
 
-    private function verifyToken(ServerRequestInterface $request): void
+    private function verifyToken(ServerRequestInterface $request, CsrfTokenManagerInterface $manager): void
     {
         $token = $this->extractToken($request);
 
@@ -236,7 +242,7 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        if ($token === '' || !$this->tokenManager->validate($token)) {
+        if ($token === '' || !$manager->validate($token)) {
             throw new InvalidCsrfTokenException(
                 'token_invalid',
                 'CSRF token is invalid or expired',
@@ -272,13 +278,25 @@ final class CsrfMiddleware implements MiddlewareInterface
         return false;
     }
 
-    private function injectToken(ServerRequestInterface $request): ServerRequestInterface
+    private function managerFor(ServerRequestInterface $request): CsrfTokenManagerInterface
     {
-        $token = $this->tokenManager->getActive() ?? $this->tokenManager->generate();
+        $manager = $this->tokenManager instanceof \Closure
+            ? ($this->tokenManager)($request)
+            : $this->tokenManager;
+        if (!$manager instanceof CsrfTokenManagerInterface) {
+            throw new \UnexpectedValueException('CSRF manager resolver must return a token manager.');
+        }
+        return $manager;
+    }
 
-        return $request
-            ->withAttribute(self::ATTR_TOKEN, $token)
-            ->withAttribute(self::ATTR_TOKEN_MANAGER, $this->tokenManager);
+    private function injectToken(ServerRequestInterface $request, CsrfTokenManagerInterface $manager): ServerRequestInterface
+    {
+        $token = $manager->getActive() ?? $manager->generate();
+        $request = $request->withAttribute(self::ATTR_TOKEN, $token);
+
+        return $this->exposeTokenManager
+            ? $request->withAttribute(self::ATTR_TOKEN_MANAGER, $manager)
+            : $request->withoutAttribute(self::ATTR_TOKEN_MANAGER);
     }
 
     private function addSecurityVary(ResponseInterface $response): ResponseInterface

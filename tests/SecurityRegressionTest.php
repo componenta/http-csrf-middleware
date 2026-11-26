@@ -11,6 +11,9 @@ use InvalidArgumentException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 
 final class SecurityRegressionTest extends TestCase
 {
@@ -18,6 +21,9 @@ final class SecurityRegressionTest extends TestCase
     {
         yield ['//'];
         yield ['///'];
+        yield ['/hook/%252e'];
+        yield ['/hook/..;param'];
+        yield ['/hook//sub'];
         yield ["/hook\0"];
         yield ["/hook\n"];
     }
@@ -31,6 +37,38 @@ final class SecurityRegressionTest extends TestCase
             new Psr17Factory(),
             excludedPaths: [$path],
         );
+    }
+
+    public function testSingleMiddlewareUsesDifferentRequestManagers(): void
+    {
+        $factory = new Psr17Factory();
+        $calls = 0;
+        $first = $this->createStub(CsrfTokenManagerInterface::class);
+        $first->method('getActive')->willReturn('first-session-token');
+        $second = $this->createStub(CsrfTokenManagerInterface::class);
+        $second->method('getActive')->willReturn('second-session-token');
+        $middleware = new CsrfMiddleware(
+            static function (ServerRequestInterface $request) use (&$calls, $first, $second): CsrfTokenManagerInterface {
+                ++$calls;
+                return $request->getAttribute('session') === 'a' ? $first : $second;
+            },
+            $factory,
+            exposeTokenManager: false,
+        );
+        $handler = new class implements RequestHandlerInterface {
+            public array $tokens = [];
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                $this->tokens[] = [$request->getAttribute(CsrfMiddleware::ATTR_TOKEN), $request->getAttribute(CsrfMiddleware::ATTR_TOKEN_MANAGER)];
+                return (new Psr17Factory())->createResponse(204);
+            }
+        };
+        foreach (['a', 'b'] as $session) {
+            $request = $factory->createServerRequest('GET', 'https://example.test/')->withAttribute('session', $session);
+            self::assertSame(204, $middleware->process($request, $handler)->getStatusCode());
+        }
+        self::assertSame(2, $calls);
+        self::assertSame([['first-session-token', null], ['second-session-token', null]], $handler->tokens);
     }
 
     public function testRefererWithAtSignInResourceIsValid(): void

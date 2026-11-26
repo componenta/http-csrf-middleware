@@ -246,3 +246,7 @@ GitHub Actions verifies:
 - RFC 10025 cookie security and `__Host-` prefix semantics;
 - Fetch Metadata request-header guidance;
 - OWASP path-confusion/canonicalization guidance for security-relevant path matching.
+
+## Long-running workers
+
+A shared `CsrfMiddleware` can receive a closure instead of a fixed token manager. The closure receives the current PSR-7 request and must return a manager bound to its trusted session context; it is invoked once per non-excluded request after applicable origin checks. Do not retain request-specific managers in shared services. The `csrf_token_manager` request attribute is deprecated; set `exposeTokenManager: false` to remove it now. It defaults to true for existing integrations. Excluded path prefixes must be plain paths: percent escapes, semicolons, repeated slashes, control characters, and dot segments are rejected both at configuration and matching time.
