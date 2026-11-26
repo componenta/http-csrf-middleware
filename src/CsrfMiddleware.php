@@ -113,7 +113,7 @@ final class CsrfMiddleware implements MiddlewareInterface
 
     private static function isUnambiguousExclusionPath(string $path): bool
     {
-        if (str_contains($path, '\\')) {
+        if (str_contains($path, '\\') || preg_match('/[\x00-\x1f\x7f]/', $path) === 1) {
             return false;
         }
 
@@ -417,6 +417,10 @@ final class CsrfMiddleware implements MiddlewareInterface
             }
 
             $path = rtrim($path, '/');
+
+            if ($path === '') {
+                throw new InvalidArgumentException('Excluded CSRF paths must not normalize to the root.');
+            }
 
             if (!in_array($path, $normalized, true)) {
                 $normalized[] = $path;

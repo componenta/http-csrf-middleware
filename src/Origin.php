@@ -46,7 +46,7 @@ final readonly class Origin implements \Stringable
 
     public static function fromUri(string $value): ?self
     {
-        if ($value === '' || trim($value) !== $value || str_contains($value, '@')) {
+        if ($value === '' || trim($value) !== $value || preg_match('/[\x00-\x1f\x7f]/', $value) === 1) {
             return null;
         }
 
