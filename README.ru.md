@@ -193,3 +193,7 @@ Default: `__Host-csrf_token`.
 GitHub Actions проверяет PHP 8.4/8.5, lowest/highest dependencies, `composer validate --strict`, `composer audit`, PHPStan level max по `src/tests` и PHPUnit regression tests.
 
 Ориентиры: OWASP CSRF Prevention Cheat Sheet и path-confusion/canonicalization guidance, RFC 9110, RFC 6454, RFC 10025 и Fetch Metadata guidance.
+
+## Долгоживущие процессы
+
+Вместо фиксированного менеджера в `CsrfMiddleware` можно передать замыкание, принимающее текущий PSR-7 запрос и возвращающее менеджер для доверенного контекста сессии. Атрибут `csrf_token_manager` устарел; параметр `exposeTokenManager: false` отключает его публикацию. Для совместимости значение по умолчанию пока `true`. Исключения путей не допускают percent-кодирование, точку с запятой, двойные слеши, управляющие символы и сегменты `.`/`..`.

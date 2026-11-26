@@ -17,6 +17,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class SecurityRegressionTest extends TestCase
 {
+    /** @return iterable<array{string}> */
     public static function rootAliases(): iterable
     {
         yield ['//'];
@@ -56,6 +57,7 @@ final class SecurityRegressionTest extends TestCase
             exposeTokenManager: false,
         );
         $handler = new class implements RequestHandlerInterface {
+            /** @var list<array{mixed, mixed}> */
             public array $tokens = [];
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
@@ -69,6 +71,16 @@ final class SecurityRegressionTest extends TestCase
         }
         self::assertSame(2, $calls);
         self::assertSame([['first-session-token', null], ['second-session-token', null]], $handler->tokens);
+    }
+
+    public function testEquivalentIpv6OriginsHaveEqualIdentity(): void
+    {
+        $first = Origin::fromSerialized('https://[2001:0db8:0:0:0:0:0:1]');
+        $second = Origin::fromSerialized('https://[2001:db8::1]');
+        self::assertNotNull($first);
+        self::assertNotNull($second);
+        self::assertTrue($first->equals($second));
+        self::assertNull(Origin::fromSerialized('https://example.test:'));
     }
 
     public function testRefererWithAtSignInResourceIsValid(): void

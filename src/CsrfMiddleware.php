@@ -28,7 +28,7 @@ final class CsrfMiddleware implements MiddlewareInterface
     private readonly ?Origin $targetOrigin;
 
     /**
-     * @param CsrfTokenManagerInterface|(\Closure(ServerRequestInterface): CsrfTokenManagerInterface) $tokenManager
+     * @param CsrfTokenManagerInterface|(\Closure(ServerRequestInterface): mixed) $tokenManager
      * @param list<string> $trustedOrigins
      * @param list<string> $excludedPaths
      */
