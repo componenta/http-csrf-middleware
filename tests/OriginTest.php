@@ -65,6 +65,10 @@ final class OriginTest extends TestCase
         yield 'missing host' => ['https://'];
         yield 'host whitespace' => ['https://exa mple.test'];
         yield 'zero port' => ['https://example.test:0'];
+        yield 'signed port' => ['https://example.test:+443'];
+        yield 'port overflow' => ['https://example.test:65536'];
+        yield 'empty port' => ['https://example.test:'];
+        yield 'multiple ports' => ['https://example.test:443:443'];
     }
 
     #[DataProvider('refererUris')]
@@ -107,6 +111,9 @@ final class OriginTest extends TestCase
         yield 'unsupported scheme' => ['file://example.test/path'];
         yield 'missing host' => ['/local/path'];
         yield 'zero port' => ['https://example.test:0/path'];
+        yield 'signed port' => ['https://example.test:+443/path'];
+        yield 'authority whitespace' => ['https://example.test: 443/path'];
+        yield 'path whitespace' => ['https://example.test/path with spaces'];
     }
 
     public function testRequestOriginUsesNormalizedPsrUriAuthority(): void

@@ -19,54 +19,19 @@ final readonly class Origin implements \Stringable
             return new self('null', true);
         }
 
-        if ($value === '' || preg_match('/[\x00-\x20\x7f]/', $value) === 1
-            || str_contains($value, '@') || str_ends_with($value, ':')) {
+        if (preg_match('~\A(https?)://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::([0-9]{1,5}))?\z~iD', $value, $parts) !== 1) {
             return null;
         }
-
-        $parsed = parse_url($value);
-
-        if (
-            $parsed === false
-            || !isset($parsed['scheme'], $parsed['host'])
-            || isset($parsed['user'])
-            || isset($parsed['pass'])
-            || isset($parsed['path'])
-            || isset($parsed['query'])
-            || isset($parsed['fragment'])
-        ) {
-            return null;
-        }
-
-        return self::fromComponents(
-            $parsed['scheme'],
-            $parsed['host'],
-            $parsed['port'] ?? null,
-        );
+        return self::fromComponents($parts[1], $parts[2], isset($parts[3]) ? (int) $parts[3] : null);
     }
 
     public static function fromUri(string $value): ?self
     {
-        if ($value === '' || trim($value) !== $value || preg_match('/[\x00-\x1f\x7f]/', $value) === 1) {
+        if (preg_match('/[\x00-\x20\x7f]/', $value) === 1
+            || preg_match('~\A(https?://[^/?#]+)(?:[/?#].*)?\z~iD', $value, $parts) !== 1) {
             return null;
         }
-
-        $parsed = parse_url($value);
-
-        if (
-            $parsed === false
-            || !isset($parsed['scheme'], $parsed['host'])
-            || isset($parsed['user'])
-            || isset($parsed['pass'])
-        ) {
-            return null;
-        }
-
-        return self::fromComponents(
-            $parsed['scheme'],
-            $parsed['host'],
-            $parsed['port'] ?? null,
-        );
+        return self::fromSerialized($parts[1]);
     }
 
     public static function fromRequest(ServerRequestInterface $request): ?self
