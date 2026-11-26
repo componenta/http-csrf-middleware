@@ -21,7 +21,8 @@
         "nyholm/psr7": "^1.8.2",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.0",
-        "componenta/session": "^1.0"
+        "componenta/session": "^1.0",
+        "phpbench/phpbench": "^1.7"
     },
     "autoload-dev": {
         "psr-4": {
@@ -35,7 +36,8 @@
             "@phpstan",
             "@test"
         ],
-        "mutation": "@php vendor/bin/infection --threads=4 --min-msi=80 --min-covered-msi=80 --no-progress"
+        "mutation": "@php vendor/bin/infection --threads=4 --min-msi=80 --min-covered-msi=80 --no-progress",
+        "benchmark": "@php vendor/bin/phpbench run --report=aggregate"
     },
     "config": {
         "sort-packages": true,
