@@ -38,6 +38,34 @@ final class SessionCsrfTokenManagerTest extends TestCase
         self::assertFalse($manager->validate($token));
     }
 
+    public function testNativeSessionRotationInvalidatesOldTokenEvenWhenSessionDataSurvives(): void
+    {
+        $manager = new SessionCsrfTokenManager();
+        $token = $manager->generate();
+        $oldId = session_id();
+        $_SESSION['retained'] = 'application-state';
+
+        self::assertTrue(session_regenerate_id(true));
+        self::assertNotSame($oldId, session_id());
+        self::assertSame('application-state', $_SESSION['retained']);
+        self::assertNull($manager->getActive());
+        self::assertFalse($manager->validate($token));
+
+        $replacement = $manager->generate();
+        self::assertNotSame($token, $replacement);
+        self::assertTrue((new SessionCsrfTokenManager())->validate($replacement));
+    }
+
+    public function testUnboundLegacyStoredTokenIsNotAccepted(): void
+    {
+        $manager = new SessionCsrfTokenManager();
+        $manager->generate();
+        $legacy = str_repeat('a', 64);
+        $_SESSION['_csrf_token'] = $legacy;
+        self::assertNull($manager->getActive());
+        self::assertFalse($manager->validate($legacy));
+    }
+
     public function testMalformedSessionValueDoesNotCauseATypeError(): void
     {
         $manager = new SessionCsrfTokenManager();
