@@ -10,6 +10,7 @@ use Componenta\Session\Session;
 use Componenta\Session\SessionId;
 use Componenta\Session\SessionInterface;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -40,6 +41,78 @@ final class ComponentaSessionCsrfTokenManagerTest extends TestCase
         $session->data->set('_csrf_token_v2', ['binding' => [], 'token' => str_repeat('a', 64)]);
         self::assertNull($manager->getActive());
         self::assertFalse($manager->validate(str_repeat('a', 64)));
+    }
+
+    /** @return iterable<array{string}> */
+    public static function invalidSessionKeys(): iterable
+    {
+        yield [''];
+        yield [str_repeat('x', 257)];
+        yield ["bad\r\nkey"];
+        yield ["bad\0key"];
+    }
+
+    #[DataProvider('invalidSessionKeys')]
+    public function testInvalidSessionKeyIsRejected(string $key): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new ComponentaSessionCsrfTokenManager(new Session(new SessionId('session')), $key);
+    }
+
+    public function testMaximumLengthSessionKeyAndIndependentNamespaces(): void
+    {
+        $session = new Session(new SessionId('session'));
+        $key = str_repeat('k', 256);
+        $first = new ComponentaSessionCsrfTokenManager($session, $key);
+        $second = new ComponentaSessionCsrfTokenManager($session, 'other');
+        $token = $first->generate();
+
+        self::assertNull($second->getActive());
+        self::assertFalse($second->validate($token));
+        $other = $second->generate();
+        self::assertTrue((new ComponentaSessionCsrfTokenManager($session, $key))->validate($token));
+        self::assertTrue($second->validate($other));
+        self::assertFalse($first->validate($other));
+    }
+
+    public function testCopiedStorageCannotAuthorizeDifferentSession(): void
+    {
+        $first = new Session(new SessionId('session-one'));
+        $second = new Session(new SessionId('session-two'));
+        $manager = new ComponentaSessionCsrfTokenManager($first);
+        $token = $manager->generate();
+        $second->data->set('_csrf_token_v2', $first->data->get('_csrf_token_v2', null));
+
+        $other = new ComponentaSessionCsrfTokenManager($second);
+        self::assertNull($other->getActive());
+        self::assertFalse($other->validate($token));
+    }
+
+    public function testMalformedStorageIsRejectedEvenWithARealSessionBinding(): void
+    {
+        $session = new Session(new SessionId('session'));
+        $manager = new ComponentaSessionCsrfTokenManager($session);
+        $token = $manager->generate();
+        $record = $session->data->get('_csrf_token_v2', null);
+        self::assertIsArray($record);
+        foreach ([
+            'not-a-record',
+            new \stdClass(),
+            [],
+            ['token' => $token],
+            ['binding' => $record['binding']],
+            [...$record, 'binding' => 1],
+            [...$record, 'token' => 1],
+            [...$record, 'token' => 'short'],
+            [...$record, 'token' => str_repeat('A', 64)],
+            [...$record, 'token' => $token . "\n"],
+        ] as $invalid) {
+            $session->data->set('_csrf_token_v2', $invalid);
+            self::assertNull($manager->getActive());
+            self::assertFalse($manager->validate($token));
+        }
+        $session->data->set('_csrf_token_v2', $record);
+        self::assertTrue($manager->validate($token));
     }
 
     public function testMissingSessionFailsExplicitly(): void
