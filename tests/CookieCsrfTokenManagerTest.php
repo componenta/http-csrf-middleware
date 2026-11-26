@@ -97,6 +97,22 @@ final class CookieCsrfTokenManagerTest extends TestCase
         new CookieCsrfTokenManager(ttl: 0);
     }
 
+    #[DataProvider('unrepresentableCookieLifetimes')]
+    public function testUnrepresentableLifetimeIsRejectedAtConfiguration(int $ttl): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new CookieCsrfTokenManager(ttl: $ttl);
+    }
+
+    /** @return iterable<array{int}> */
+    public static function unrepresentableCookieLifetimes(): iterable
+    {
+        yield [PHP_INT_MAX];
+        if (PHP_INT_SIZE >= 8) {
+            yield [(int) 253402300800];
+        }
+    }
+
     #[DataProvider('supportedSameSiteValues')]
     public function testSupportedSameSiteValuesAreCaseInsensitive(string $sameSite): void
     {
