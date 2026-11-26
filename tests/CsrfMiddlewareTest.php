@@ -396,7 +396,7 @@ final class CsrfMiddlewareTest extends TestCase
         $response = $middleware->process($request, $handler);
 
         self::assertSame(
-            'Accept-Encoding, Origin, Sec-Fetch-Site',
+            'Accept-Encoding, Origin, Referer, Sec-Fetch-Site',
             $response->getHeaderLine('Vary'),
         );
     }

@@ -80,13 +80,13 @@ Recognized values are:
 
 Unknown future `Sec-Fetch-Site` values are ignored for forward compatibility; the request still has to pass the configured Origin/Referer and CSRF-token checks.
 
-Fetch Metadata is browser-controlled defense in depth. It does not replace the CSRF token and can be absent on legacy/non-browser clients. Successful unsafe responses add `Vary: Origin, Sec-Fetch-Site` for the checks that are enabled, while preserving `Vary: *`.
+Fetch Metadata is browser-controlled defense in depth. It does not replace the CSRF token and can be absent on legacy/non-browser clients. Successful unsafe responses add `Vary: Origin, Referer, Sec-Fetch-Site` for the checks that are enabled, while preserving `Vary: *`.
 
 ### Origin and Referer
 
 `checkOrigin` defaults to `true`.
 
-The middleware prefers `Origin`; when it is absent it falls back to `Referer`. Both are compared as exact origins including scheme, host, and effective port.
+The middleware prefers `Origin`; only when it is absent does it fall back to `Referer`. Empty or multiple values of the selected singleton header are malformed, not missing. Both are compared as exact origins including scheme, host, and effective port.
 
 The following fail closed:
 

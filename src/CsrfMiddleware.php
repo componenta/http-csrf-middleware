@@ -170,10 +170,10 @@ final class CsrfMiddleware implements MiddlewareInterface
 
     private function verifyOrigin(ServerRequestInterface $request): void
     {
-        $originHeader = $request->getHeaderLine('Origin');
-        $referer = $request->getHeaderLine('Referer');
+        $hasOrigin = $request->hasHeader('Origin');
+        $hasReferer = $request->hasHeader('Referer');
 
-        if ($originHeader === '' && $referer === '') {
+        if (!$hasOrigin && !$hasReferer) {
             if ($this->allowMissingOrigin) {
                 return;
             }
@@ -193,8 +193,9 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        if ($originHeader !== '') {
-            $source = Origin::fromSerialized($originHeader);
+        if ($hasOrigin) {
+            $origins = $request->getHeader('Origin');
+            $source = count($origins) === 1 ? Origin::fromSerialized(array_values($origins)[0]) : null;
 
             if ($source === null) {
                 throw new InvalidCsrfTokenException('origin_malformed', 'Origin header is malformed');
@@ -214,7 +215,8 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        $source = Origin::fromUri($referer);
+        $referers = $request->getHeader('Referer');
+        $source = count($referers) === 1 ? Origin::fromUri(array_values($referers)[0]) : null;
 
         if ($source === null || $source->opaque) {
             throw new InvalidCsrfTokenException(
@@ -305,6 +307,7 @@ final class CsrfMiddleware implements MiddlewareInterface
 
         if ($this->checkOrigin) {
             $headers[] = 'Origin';
+            $headers[] = 'Referer';
         }
 
         if ($this->checkFetchMetadata) {
