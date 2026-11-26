@@ -206,11 +206,11 @@ adds `X-CSRF-Failure`.
 
 ## Native session manager
 
-`SessionCsrfTokenManager` stores a 32-byte random token as 64 lowercase hex characters. Stored session values that do not match this format are treated as unavailable.
+`SessionCsrfTokenManager` stores a 32-byte random token as 64 lowercase hex characters, together with a binding to the current native PHP session identifier. A changed session identifier invalidates the old token, even if the session data was retained. Malformed or previously stored unbound token strings are treated as unavailable; existing forms must obtain a fresh token after upgrading.
 
 The manager starts the native PHP session when needed and throws if session storage cannot be opened.
 
-Session identifier rotation/fixation prevention remains the responsibility of the authentication/session layer.
+Session identifier rotation/fixation prevention remains the responsibility of the authentication/session layer. If an authentication handler regenerates the session ID, obtain a new CSRF token for subsequent forms; the token issued before rotation is no longer valid.
 
 ## Legacy cookie manager
 

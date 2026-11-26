@@ -25,38 +25,43 @@ final class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 
     public function generate(): string
     {
-        $this->ensureSessionStarted();
-
+        $binding = $this->currentBinding();
         $token = bin2hex(random_bytes(self::TOKEN_BYTES));
-        $_SESSION[$this->sessionKey] = $token;
+        $_SESSION[$this->sessionKey] = ['binding' => $binding, 'token' => $token];
 
         return $token;
     }
 
     public function validate(#[\SensitiveParameter] string $token): bool
     {
-        $this->ensureSessionStarted();
+        $stored = $this->getActive();
 
-        $stored = $_SESSION[$this->sessionKey] ?? null;
-
-        if (
-            !is_string($stored)
-            || !self::isValidToken($stored)
-            || !self::isValidToken($token)
-        ) {
-            return false;
-        }
-
-        return hash_equals($stored, $token);
+        return $stored !== null && self::isValidToken($token) && hash_equals($stored, $token);
     }
 
     public function getActive(): ?string
     {
+        $binding = $this->currentBinding();
+        $value = $_SESSION[$this->sessionKey] ?? null;
+        if (!is_array($value) || !isset($value['binding'], $value['token'])
+            || !is_string($value['binding']) || !is_string($value['token'])
+            || !self::isValidToken($value['token'])
+            || !hash_equals($binding, $value['binding'])) {
+            return null;
+        }
+
+        return $value['token'];
+    }
+
+    private function currentBinding(): string
+    {
         $this->ensureSessionStarted();
+        $id = session_id();
+        if ($id === false || $id === '') {
+            throw new RuntimeException('CSRF protection requires a valid PHP session identifier.');
+        }
 
-        $token = $_SESSION[$this->sessionKey] ?? null;
-
-        return is_string($token) && self::isValidToken($token) ? $token : null;
+        return hash('sha256', "componenta-native-session-csrf-v2\0" . $id);
     }
 
     private static function isValidToken(string $token): bool
