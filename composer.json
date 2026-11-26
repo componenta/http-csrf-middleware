@@ -52,6 +52,6 @@
     },
     "prefer-stable": true,
     "suggest": {
-        "componenta/session": "Enables ComponentaSessionCsrfTokenManager for PSR-7 request-scoped sessions."
+        "componenta/session": "Enables SessionCsrfTokenManager for PSR-7 request-scoped Componenta sessions."
     }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+- The native PHP session manager formerly named `SessionCsrfTokenManager` is now `NativeSessionCsrfTokenManager`. Update imports and constructor calls for native PHP sessions.
+- The Componenta Session adapter formerly named `ComponentaSessionCsrfTokenManager` is now `SessionCsrfTokenManager`. It accepts `Componenta\Session\SessionInterface` and supports the request-scoped `fromRequest()` resolver. The former name is removed; no compatibility aliases are provided.
+- Native PHP session tokens now include a binding to the current session identifier. Previously stored unbound tokens are invalidated on upgrade.
+
 ## v3.1.0
 
 ### Fixed

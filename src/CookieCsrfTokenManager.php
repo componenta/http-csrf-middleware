@@ -8,7 +8,7 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * @deprecated Prefer SessionCsrfTokenManager or HmacCsrfTokenManager.
+ * @deprecated Prefer SessionCsrfTokenManager, NativeSessionCsrfTokenManager or HmacCsrfTokenManager.
  *
  * Legacy double-submit-cookie token manager. The cookie is constrained to
  * __Host- semantics to reduce sibling-subdomain cookie injection risk.

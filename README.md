@@ -17,7 +17,8 @@ The package has no config provider. Construct the middleware and a PSR-17 respon
 | Manager | Use |
 |---|---|
 | `HmacCsrfTokenManager` | Stateless token signed with a server secret and bound to trusted session state. |
-| `SessionCsrfTokenManager` | 256-bit random synchronizer token stored in a native PHP session. |
+| `SessionCsrfTokenManager` | Session-bound synchronizer token stored in Componenta Session (optional `componenta/session` integration). |
+| `NativeSessionCsrfTokenManager` | Session-bound synchronizer token stored in a native PHP session. |
 | `CookieCsrfTokenManager` | Legacy double-submit mode only; deprecated for new integrations. |
 
 For Auth 3 browser sessions use `AuthSessionCsrfTokenManager` / `AuthSessionCsrfMiddleware` from `componenta/auth-session-http`. They bind the token to the authenticated session UUID and credential generation.
@@ -204,11 +205,17 @@ debugFailureHeader: true
 
 adds `X-CSRF-Failure`.
 
-## Native session manager
+## Native PHP session manager
 
-`SessionCsrfTokenManager` stores a 32-byte random token as 64 lowercase hex characters, together with a binding to the current native PHP session identifier. A changed session identifier invalidates the old token, even if the session data was retained. Malformed or previously stored unbound token strings are treated as unavailable; existing forms must obtain a fresh token after upgrading.
+`NativeSessionCsrfTokenManager` stores a 32-byte random token as 64 lowercase hex characters, together with a binding to the current native PHP session identifier. A changed session identifier invalidates the old token, even if the session data was retained. Malformed or previously stored unbound token strings are treated as unavailable; existing forms must obtain a fresh token after upgrading.
 
-The manager starts the native PHP session when needed and throws if session storage cannot be opened.
+The manager starts the native PHP session when needed and throws if session storage cannot be opened. It uses PHP's native session API and is intended for a runtime that manages that session lifecycle.
+
+```php
+use Componenta\Http\Middleware\Csrf\NativeSessionCsrfTokenManager;
+
+$tokens = new NativeSessionCsrfTokenManager();
+```
 
 Session identifier rotation/fixation prevention remains the responsibility of the authentication/session layer. If an authentication handler regenerates the session ID, obtain a new CSRF token for subsequent forms; the token issued before rotation is no longer valid.
 
@@ -252,23 +259,23 @@ GitHub Actions verifies:
 A shared `CsrfMiddleware` can receive a closure instead of a fixed token manager. The closure receives the current PSR-7 request and must return a manager bound to its trusted session context; it is invoked once per non-excluded request after applicable origin checks. Do not retain request-specific managers in shared services. The `csrf_token_manager` request attribute is deprecated; set `exposeTokenManager: false` to remove it now. It defaults to true for existing integrations. Excluded path prefixes must be plain paths: percent escapes, semicolons, repeated slashes, control characters, and dot segments are rejected both at configuration and matching time.
 
 
-## Componenta Session adapter
+## Componenta Session manager
 
 Install the optional integration with `composer require componenta/session`. Run SessionMiddleware before CSRF and explicitly configure the middleware using the request-scoped resolver:
 
 ```php
-use Componenta\Http\Middleware\Csrf\ComponentaSessionCsrfTokenManager;
+use Componenta\Http\Middleware\Csrf\SessionCsrfTokenManager;
 use Componenta\Http\Middleware\Csrf\CsrfMiddleware;
 
 $csrf = new CsrfMiddleware(
-    ComponentaSessionCsrfTokenManager::fromRequest(...),
+    SessionCsrfTokenManager::fromRequest(...),
     $responseFactory,
     targetOrigin: 'https://shop.example',
     exposeTokenManager: false,
 );
 ```
 
-The adapter stores a random synchronizer token in the current server-side session. A changed session ID invalidates the old token even when the session data survives regeneration. The session layer must securely create, persist and regenerate identifiers and must isolate session data. This adapter does not replace the separate Auth session integration. Use a session store that prevents lost updates if concurrent first requests must receive the same token.
+`SessionCsrfTokenManager` accepts a `Componenta\Session\SessionInterface` in its constructor or resolves it from the current PSR-7 request using `fromRequest()`. It stores a random synchronizer token in the current server-side session. A changed session ID invalidates the old token even when the session data survives regeneration. The session layer must securely create, persist and regenerate identifiers and must isolate session data. This adapter does not replace the separate Auth session integration. Use a session store that prevents lost updates if concurrent first requests must receive the same token.
 
 Responses that actually expose a per-session token must not be stored in shared caches: set `Cache-Control: private, no-store` on those responses. Do not treat `Vary: Origin` as a substitute for session-specific cache isolation.
 

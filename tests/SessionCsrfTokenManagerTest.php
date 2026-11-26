@@ -5,146 +5,148 @@ declare(strict_types=1);
 namespace Componenta\Http\Middleware\Csrf\Tests;
 
 use Componenta\Http\Middleware\Csrf\SessionCsrfTokenManager;
-use PHPUnit\Framework\Attributes\BackupGlobals;
+use Componenta\Http\Middleware\Csrf\CsrfMiddleware;
+use Componenta\Session\Session;
+use Componenta\Session\SessionId;
+use Componenta\Session\SessionInterface;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 
-#[BackupGlobals(true)]
 final class SessionCsrfTokenManagerTest extends TestCase
 {
-    protected function setUp(): void
+    public function testTokenIsStoredAndInvalidatedAfterSessionIdRotation(): void
     {
-        // No files, cookies, or shared developer session storage.
-        session_set_save_handler(new InMemoryCsrfSessionHandler(), false);
-        session_id('csrf-package-test');
-    }
-
-    protected function tearDown(): void
-    {
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_destroy();
-        }
-    }
-
-    public function testGeneratedTokenIsAvailableAcrossManagerInstances(): void
-    {
-        $token = (new SessionCsrfTokenManager())->generate();
-        $manager = new SessionCsrfTokenManager();
-
-        self::assertSame($token, $manager->getActive());
-        self::assertTrue($manager->validate($token));
-        $replacement = $manager->generate();
-        self::assertTrue($manager->validate($replacement));
-        self::assertFalse($manager->validate($token));
-    }
-
-    public function testNativeSessionRotationInvalidatesOldTokenEvenWhenSessionDataSurvives(): void
-    {
-        $manager = new SessionCsrfTokenManager();
+        $session = new Session(new SessionId('first-session'));
+        $manager = new SessionCsrfTokenManager($session);
+        self::assertNull($manager->getActive());
         $token = $manager->generate();
-        $oldId = session_id();
-        $_SESSION['retained'] = 'application-state';
-
-        self::assertTrue(session_regenerate_id(true));
-        self::assertNotSame($oldId, session_id());
-        self::assertSame('application-state', $_SESSION['retained']);
+        self::assertSame($token, (new SessionCsrfTokenManager($session))->getActive());
+        self::assertTrue($manager->validate($token));
+        $session->id = new SessionId('rotated-session');
         self::assertNull($manager->getActive());
         self::assertFalse($manager->validate($token));
-
         $replacement = $manager->generate();
         self::assertNotSame($token, $replacement);
-        self::assertTrue((new SessionCsrfTokenManager())->validate($replacement));
+        self::assertTrue($manager->validate($replacement));
     }
 
-    public function testUnboundLegacyStoredTokenIsNotAccepted(): void
+    public function testMalformedStoredDataIsNotAccepted(): void
     {
-        $manager = new SessionCsrfTokenManager();
-        $manager->generate();
-        $legacy = str_repeat('a', 64);
-        $_SESSION['_csrf_token'] = $legacy;
+        $session = new Session(new SessionId('session'));
+        $manager = new SessionCsrfTokenManager($session);
+        $session->data->set('_csrf_token_v2', ['binding' => [], 'token' => str_repeat('a', 64)]);
         self::assertNull($manager->getActive());
-        self::assertFalse($manager->validate($legacy));
+        self::assertFalse($manager->validate(str_repeat('a', 64)));
     }
 
-    public function testMalformedSessionValueDoesNotCauseATypeError(): void
+    /** @return iterable<array{string}> */
+    public static function invalidSessionKeys(): iterable
     {
-        $manager = new SessionCsrfTokenManager();
-        $manager->generate();
-        $_SESSION['_csrf_token'] = ['attacker-value'];
-
-        self::assertNull($manager->getActive());
-        self::assertFalse($manager->validate('attacker-value'));
-        self::assertTrue($manager->validate($manager->generate()));
-    }
-
-    public function testMalformedStringSessionValueIsUnavailable(): void
-    {
-        $manager = new SessionCsrfTokenManager();
-        $manager->generate();
-        $_SESSION['_csrf_token'] = 'weak-token';
-
-        self::assertNull($manager->getActive());
-        self::assertFalse($manager->validate('weak-token'));
+        yield [''];
+        yield [str_repeat('x', 257)];
+        yield ["bad\r\nkey"];
+        yield ["bad\0key"];
     }
 
     #[DataProvider('invalidSessionKeys')]
     public function testInvalidSessionKeyIsRejected(string $key): void
     {
         $this->expectException(\InvalidArgumentException::class);
-
-        new SessionCsrfTokenManager($key);
+        new SessionCsrfTokenManager(new Session(new SessionId('session')), $key);
     }
 
-    /**
-     * @return iterable<string, array{string}>
-     */
-    public static function invalidSessionKeys(): iterable
+    public function testMaximumLengthSessionKeyAndIndependentNamespaces(): void
     {
-        yield 'empty' => [''];
-        yield 'control characters' => ["bad\r\nkey"];
-        yield 'too long' => [str_repeat('k', 257)];
+        $session = new Session(new SessionId('session'));
+        $key = str_repeat('k', 256);
+        $first = new SessionCsrfTokenManager($session, $key);
+        $second = new SessionCsrfTokenManager($session, 'other');
+        $token = $first->generate();
+
+        self::assertNull($second->getActive());
+        self::assertFalse($second->validate($token));
+        $other = $second->generate();
+        self::assertTrue((new SessionCsrfTokenManager($session, $key))->validate($token));
+        self::assertTrue($second->validate($other));
+        self::assertFalse($first->validate($other));
     }
 
-    public function testMaximumSessionKeyLengthIsAccepted(): void
+    public function testCopiedStorageCannotAuthorizeDifferentSession(): void
     {
-        $manager = new SessionCsrfTokenManager(str_repeat('k', 256));
-
+        $first = new Session(new SessionId('session-one'));
+        $second = new Session(new SessionId('session-two'));
+        $manager = new SessionCsrfTokenManager($first);
         $token = $manager->generate();
+        $second->data->set('_csrf_token_v2', $first->data->get('_csrf_token_v2', null));
 
+        $other = new SessionCsrfTokenManager($second);
+        self::assertNull($other->getActive());
+        self::assertFalse($other->validate($token));
+    }
+
+    public function testMalformedStorageIsRejectedEvenWithARealSessionBinding(): void
+    {
+        $session = new Session(new SessionId('session'));
+        $manager = new SessionCsrfTokenManager($session);
+        $token = $manager->generate();
+        $record = $session->data->get('_csrf_token_v2', null);
+        self::assertIsArray($record);
+        foreach ([
+            'not-a-record',
+            new \stdClass(),
+            [],
+            ['token' => $token],
+            ['binding' => $record['binding']],
+            [...$record, 'binding' => 1],
+            [...$record, 'token' => 1],
+            [...$record, 'token' => 'short'],
+            [...$record, 'token' => str_repeat('A', 64)],
+            [...$record, 'token' => $token . "\n"],
+        ] as $invalid) {
+            $session->data->set('_csrf_token_v2', $invalid);
+            self::assertNull($manager->getActive());
+            self::assertFalse($manager->validate($token));
+        }
+        $session->data->set('_csrf_token_v2', $record);
         self::assertTrue($manager->validate($token));
     }
 
-    public function testEmptySessionValueIsUnavailable(): void
+    public function testMissingSessionFailsExplicitly(): void
     {
-        $manager = new SessionCsrfTokenManager();
-        $manager->generate();
-        $_SESSION['_csrf_token'] = '';
-
-        self::assertNull($manager->getActive());
-        self::assertFalse($manager->validate(''));
+        $this->expectException(\RuntimeException::class);
+        SessionCsrfTokenManager::fromRequest((new Psr17Factory())->createServerRequest('GET', '/'));
     }
 
-    public function testFailedSessionStartupDoesNotIssueAnUnstoredToken(): void
+    public function testSharedMiddlewareDoesNotAcceptAnotherSessionsToken(): void
     {
-        session_set_save_handler(new InMemoryCsrfSessionHandler(false), false);
-        // Capture PHP's expected storage warning; the manager must still throw.
-        set_error_handler(static fn(int $severity, string $message): bool => $severity === E_WARNING);
-        try {
-            $this->expectException(\RuntimeException::class);
-            (new SessionCsrfTokenManager())->generate();
-        } finally {
-            restore_error_handler();
-        }
+        $factory = new Psr17Factory();
+        $first = new Session(new SessionId('first-session'));
+        $second = new Session(new SessionId('second-session'));
+        $token = (new SessionCsrfTokenManager($first))->generate();
+        (new SessionCsrfTokenManager($second))->generate();
+        $middleware = new CsrfMiddleware(
+            SessionCsrfTokenManager::fromRequest(...),
+            $factory,
+            targetOrigin: 'https://example.test',
+            exposeTokenManager: false,
+        );
+        $handler = new class implements RequestHandlerInterface {
+            public int $calls = 0;
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                ++$this->calls;
+                return (new Psr17Factory())->createResponse(204);
+            }
+        };
+        $request = $factory->createServerRequest('POST', 'https://example.test/')
+            ->withHeader('Origin', 'https://example.test')
+            ->withHeader('X-CSRF-Token', $token);
+        self::assertSame(403, $middleware->process($request->withAttribute(SessionInterface::class, $second), $handler)->getStatusCode());
+        self::assertSame(204, $middleware->process($request->withAttribute(SessionInterface::class, $first), $handler)->getStatusCode());
+        self::assertSame(1, $handler->calls);
     }
-}
-
-final class InMemoryCsrfSessionHandler implements \SessionHandlerInterface
-{
-    public function __construct(private bool $available = true) {}
-    public function open(string $path, string $name): bool { return $this->available; }
-    public function close(): bool { return true; }
-    public function read(string $id): string { return ''; }
-    public function write(string $id, string $data): bool { return true; }
-    public function destroy(string $id): bool { return true; }
-    public function gc(int $max_lifetime): int { return 0; }
 }
