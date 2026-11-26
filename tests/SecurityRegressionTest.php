@@ -73,6 +73,35 @@ final class SecurityRegressionTest extends TestCase
         self::assertSame([['first-session-token', null], ['second-session-token', null]], $handler->tokens);
     }
 
+    public function testPresentMalformedOriginOrRefererCannotUseMissingOriginPolicy(): void
+    {
+        $factory = new Psr17Factory();
+        $manager = $this->createStub(CsrfTokenManagerInterface::class);
+        $manager->method('getActive')->willReturn('valid-token');
+        $manager->method('validate')->willReturn(true);
+        $middleware = new CsrfMiddleware($manager, $factory, allowMissingOrigin: true, targetOrigin: 'https://example.test');
+        $handler = new class implements RequestHandlerInterface {
+            public int $calls = 0;
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                ++$this->calls;
+                return (new Psr17Factory())->createResponse(204);
+            }
+        };
+        $base = $factory->createServerRequest('POST', 'https://example.test/change')->withHeader('X-CSRF-Token', 'valid-token');
+        foreach ([
+            $base->withHeader('Origin', ''),
+            $base->withHeader('Origin', '')->withHeader('Referer', 'https://example.test/path'),
+            $base->withHeader('Referer', ''),
+            $base->withHeader('Referer', ['https://example.test/path', 'https://other.test/path']),
+        ] as $request) {
+            self::assertSame(403, $middleware->process($request, $handler)->getStatusCode());
+        }
+        self::assertSame(0, $handler->calls);
+        self::assertSame(204, $middleware->process($base, $handler)->getStatusCode());
+        self::assertSame(204, $middleware->process($base->withHeader('Referer', 'https://example.test/path'), $handler)->getStatusCode());
+    }
+
     public function testEquivalentIpv6OriginsHaveEqualIdentity(): void
     {
         $first = Origin::fromSerialized('https://[2001:0db8:0:0:0:0:0:1]');
