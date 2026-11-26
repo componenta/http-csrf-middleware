@@ -20,7 +20,8 @@
         "infection/infection": "^0.35.4",
         "nyholm/psr7": "^1.8.2",
         "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^12.0"
+        "phpunit/phpunit": "^12.0",
+        "componenta/session": "^1.0"
     },
     "autoload-dev": {
         "psr-4": {
@@ -42,5 +43,8 @@
             "infection/extension-installer": true
         }
     },
-    "prefer-stable": true
+    "prefer-stable": true,
+    "suggest": {
+        "componenta/session": "Enables ComponentaSessionCsrfTokenManager for PSR-7 request-scoped sessions."
+    }
 }
