@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use Componenta\Stdlib\RandomToken;
+
 /**
  * HMAC tokens bound to one trusted session context, without token storage.
  *
@@ -51,7 +53,7 @@ final class HmacCsrfTokenManager implements CsrfTokenManagerInterface
     #[\Override]
     public function generate(): string
     {
-        $nonce = bin2hex(random_bytes(self::NONCE_BYTES));
+        $nonce = RandomToken::generateHex(self::NONCE_BYTES);
         $timestamp = (string) $this->now();
         $signature = $this->sign($nonce, $timestamp);
 

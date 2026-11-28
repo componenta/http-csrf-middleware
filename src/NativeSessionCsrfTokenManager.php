@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use Componenta\Stdlib\RandomToken;
+
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -26,7 +28,7 @@ final class NativeSessionCsrfTokenManager implements CsrfTokenManagerInterface
     public function generate(): string
     {
         $binding = $this->currentBinding();
-        $token = bin2hex(random_bytes(self::TOKEN_BYTES));
+        $token = RandomToken::generateHex(self::TOKEN_BYTES);
         $_SESSION[$this->sessionKey] = ['binding' => $binding, 'token' => $token];
 
         return $token;
@@ -36,7 +38,7 @@ final class NativeSessionCsrfTokenManager implements CsrfTokenManagerInterface
     {
         $stored = $this->getActive();
 
-        return $stored !== null && self::isValidToken($token) && hash_equals($stored, $token);
+        return $stored !== null && RandomToken::matchesHex($token, self::TOKEN_BYTES) && hash_equals($stored, $token);
     }
 
     public function getActive(): ?string
@@ -45,7 +47,7 @@ final class NativeSessionCsrfTokenManager implements CsrfTokenManagerInterface
         $value = $_SESSION[$this->sessionKey] ?? null;
         if (!is_array($value) || !isset($value['binding'], $value['token'])
             || !is_string($value['binding']) || !is_string($value['token'])
-            || !self::isValidToken($value['token'])
+            || !RandomToken::matchesHex($value['token'], self::TOKEN_BYTES)
             || !hash_equals($binding, $value['binding'])) {
             return null;
         }
@@ -62,11 +64,6 @@ final class NativeSessionCsrfTokenManager implements CsrfTokenManagerInterface
         }
 
         return hash('sha256', "componenta-native-session-csrf-v2\0" . $id);
-    }
-
-    private static function isValidToken(string $token): bool
-    {
-        return preg_match('/\A[0-9a-f]{64}\z/D', $token) === 1;
     }
 
     private function ensureSessionStarted(): void

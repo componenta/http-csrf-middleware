@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use Componenta\Stdlib\RandomToken;
+
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -15,6 +17,8 @@ use RuntimeException;
  */
 final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
 {
+    private const int TOKEN_BYTES = 32;
+
     private ?string $token = null;
     private bool $tokenRead = false;
 
@@ -56,7 +60,7 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
     #[\Override]
     public function generate(): string
     {
-        $token = bin2hex(random_bytes(32));
+        $token = RandomToken::generateHex(self::TOKEN_BYTES);
         $this->setCookie($token);
         $this->token = $token;
         $this->tokenRead = true;
@@ -69,7 +73,7 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
     {
         $stored = $this->getActive();
 
-        if ($stored === null || preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+        if ($stored === null || !RandomToken::matchesHex($token, self::TOKEN_BYTES)) {
             return false;
         }
 
@@ -81,7 +85,7 @@ final class CookieCsrfTokenManager implements CsrfTokenManagerInterface
     {
         if (!$this->tokenRead) {
             $value = $_COOKIE[$this->cookieName] ?? null;
-            $this->token = is_string($value) && preg_match('/\A[0-9a-f]{64}\z/D', $value) === 1
+            $this->token = is_string($value) && RandomToken::matchesHex($value, self::TOKEN_BYTES)
                 ? $value
                 : null;
             $this->tokenRead = true;

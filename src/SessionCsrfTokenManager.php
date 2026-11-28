@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use Componenta\Stdlib\RandomToken;
+
 use Componenta\Session\SessionInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -13,6 +15,8 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class SessionCsrfTokenManager implements CsrfTokenManagerInterface
 {
+    private const int TOKEN_BYTES = 32;
+
     public function __construct(
         private SessionInterface $session,
         private string $sessionKey = '_csrf_token_v2',
@@ -39,7 +43,7 @@ final readonly class SessionCsrfTokenManager implements CsrfTokenManagerInterfac
     #[\Override]
     public function generate(): string
     {
-        $token = bin2hex(random_bytes(32));
+        $token = RandomToken::generateHex(self::TOKEN_BYTES);
         $this->session->data->set($this->sessionKey, [
             'binding' => $this->binding(),
             'token' => $token,
@@ -50,7 +54,7 @@ final readonly class SessionCsrfTokenManager implements CsrfTokenManagerInterfac
     #[\Override]
     public function validate(#[\SensitiveParameter] string $token): bool
     {
-        if (!self::validToken($token)) {
+        if (!RandomToken::matchesHex($token, self::TOKEN_BYTES)) {
             return false;
         }
         $active = $this->getActive();
@@ -63,7 +67,7 @@ final readonly class SessionCsrfTokenManager implements CsrfTokenManagerInterfac
         $value = $this->session->data->get($this->sessionKey, null);
         if (!is_array($value) || !isset($value['binding'], $value['token'])
             || !is_string($value['binding']) || !is_string($value['token'])
-            || !self::validToken($value['token'])
+            || !RandomToken::matchesHex($value['token'], self::TOKEN_BYTES)
             || !hash_equals($this->binding(), $value['binding'])) {
             return null;
         }
@@ -79,10 +83,5 @@ final readonly class SessionCsrfTokenManager implements CsrfTokenManagerInterfac
     private function binding(): string
     {
         return hash('sha256', "componenta-session-csrf-v2\0" . (string) $this->session->id);
-    }
-
-    private static function validToken(string $token): bool
-    {
-        return preg_match('/\A[0-9a-f]{64}\z/D', $token) === 1;
     }
 }
