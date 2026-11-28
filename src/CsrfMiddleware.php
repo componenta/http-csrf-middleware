@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf;
 
+use Componenta\Http\HttpMethod;
+use Componenta\Http\Origin;
 use InvalidArgumentException;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -13,8 +15,6 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class CsrfMiddleware implements MiddlewareInterface
 {
-    private const array SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
-
     public const string ATTR_TOKEN = 'csrf_token';
     /** @deprecated Pass the token manager explicitly to consumers instead. */
     public const string ATTR_TOKEN_MANAGER = 'csrf_token_manager';
@@ -95,7 +95,7 @@ final class CsrfMiddleware implements MiddlewareInterface
 
     private function isSafeMethod(ServerRequestInterface $request): bool
     {
-        return in_array($request->getMethod(), self::SAFE_METHODS, true);
+        return HttpMethod::isSafe($request->getMethod());
     }
 
     private function isExcludedPath(ServerRequestInterface $request): bool
@@ -184,7 +184,8 @@ final class CsrfMiddleware implements MiddlewareInterface
             );
         }
 
-        $target = $this->targetOrigin ?? Origin::fromRequest($request);
+        $uri = $request->getUri();
+        $target = $this->targetOrigin ?? Origin::fromComponents($uri->getScheme(), $uri->getHost(), $uri->getPort());
 
         if ($target === null || $target->opaque) {
             throw new InvalidCsrfTokenException(

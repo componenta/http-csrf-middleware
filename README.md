@@ -280,3 +280,7 @@ $csrf = new CsrfMiddleware(
 Responses that actually expose a per-session token must not be stored in shared caches: set `Cache-Control: private, no-store` on those responses. Do not treat `Vary: Origin` as a substitute for session-specific cache isolation.
 
 The legacy cookie manager rejects lifetimes that cannot be represented as a native PHP cookie expiry (including integer overflow or an expiry after year 9999).
+
+## Migration to 4.x
+
+Use `Componenta\Http\Origin` from `componenta/http` 2.x instead of the former CSRF-local class. For PSR-7 requests, pass URI scheme, host and port to `Origin::fromComponents()`. CSRF authorization and token policies remain in this package.

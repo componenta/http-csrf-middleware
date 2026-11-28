@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Componenta\Http\Middleware\Csrf\Tests;
 
-use Componenta\Http\Middleware\Csrf\Origin;
+use Componenta\Http\Origin;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -120,7 +120,8 @@ final class OriginTest extends TestCase
     {
         $request = new ServerRequest('POST', 'HTTPS://Example.TEST:443/change');
 
-        $origin = Origin::fromRequest($request);
+        $uri = $request->getUri();
+        $origin = Origin::fromComponents($uri->getScheme(), $uri->getHost(), $uri->getPort());
 
         self::assertNotNull($origin);
         self::assertSame('https://example.test', (string) $origin);
@@ -128,7 +129,8 @@ final class OriginTest extends TestCase
 
     public function testRelativeRequestUriHasNoTrustworthyOrigin(): void
     {
-        self::assertNull(Origin::fromRequest(new ServerRequest('POST', '/change')));
+        $uri = (new ServerRequest('POST', '/change'))->getUri();
+        self::assertNull(Origin::fromComponents($uri->getScheme(), $uri->getHost(), $uri->getPort()));
     }
 
     public function testOriginEqualityIncludesSchemeHostAndEffectivePort(): void

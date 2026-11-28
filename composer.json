@@ -4,6 +4,7 @@
     "type": "library",
     "license": "MIT",
     "require": {
+        "componenta/http": "^2.0",
         "php": "^8.4",
         "psr/http-message": "^2.0",
         "psr/http-server-middleware": "^1.0",
@@ -53,5 +54,10 @@
     "prefer-stable": true,
     "suggest": {
         "componenta/session": "Enables SessionCsrfTokenManager for PSR-7 request-scoped Componenta sessions."
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-fix/middleware-security-audit": "4.0.x-dev"
+        }
     }
 }

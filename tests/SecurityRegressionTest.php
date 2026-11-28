@@ -6,7 +6,7 @@ namespace Componenta\Http\Middleware\Csrf\Tests;
 
 use Componenta\Http\Middleware\Csrf\CsrfMiddleware;
 use Componenta\Http\Middleware\Csrf\CsrfTokenManagerInterface;
-use Componenta\Http\Middleware\Csrf\Origin;
+use Componenta\Http\Origin;
 use InvalidArgumentException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\DataProvider;
